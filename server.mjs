@@ -20,6 +20,8 @@ const COOKIE = "lt_sync";
 const MAX_BODY = 2 * 1024 * 1024;
 /** The accounts: letters, digits, - and _ */
 const ACCOUNTS = ["Rodrigo", "Nicola"];
+/** Accounts that were renamed: old name -> new, so a saved list follows the new name */
+const RENAMED = { Rayan: "Rodrigo" };
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -185,5 +187,11 @@ createServer(async (req, res) => {
 }).listen(PORT, () => {
   console.log(`Loot Table on port ${PORT}`);
   console.log(`Sync for ${ACCOUNTS.join(", ")}, saving to ${join(DATA_DIR, "users")}`);
+  for (const [from, to] of Object.entries(RENAMED)) {
+    if (existsSync(stateFile(from)) && !existsSync(stateFile(to))) {
+      renameSync(stateFile(from), stateFile(to));
+      console.log(`Moved ${from}'s list to ${to}`);
+    }
+  }
   if (!existsSync(DATA_DIR)) console.log(`Warning: ${DATA_DIR} doesn't exist. Attach a volume there, or lists are lost on redeploy.`);
 });
