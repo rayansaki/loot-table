@@ -7,10 +7,13 @@
 
 const SYNCED = ["loot-table.", "foryou."];
 const isSynced = (key: string) => SYNCED.some((p) => key.startsWith(p));
+/** Whose list is in this browser now (not synced itself) */
+const ACCOUNT_KEY = "sync.account";
 
 interface ServerState {
   rev: number;
   data: Record<string, string>;
+  user: string;
 }
 
 let enabled = false;
@@ -79,6 +82,7 @@ function changed(key: string): void {
 async function refresh(): Promise<void> {
   if (timer !== undefined) return; // our own change is on its way up: it wins
   const s = await fetchState();
+  if (s && s.user !== localStorage.getItem(ACCOUNT_KEY)) return location.reload(); // signed in as someone else meanwhile
   if (!s || s.rev === rev) return;
   rev = s.rev;
   if (!same(s.data, localState())) {
@@ -94,8 +98,11 @@ export async function initSync(): Promise<void> {
   if (!s) return;
   enabled = true;
   rev = s.rev;
+  const before = localStorage.getItem(ACCOUNT_KEY);
+  localStorage.setItem(ACCOUNT_KEY, s.user);
   if (Object.keys(s.data).length) apply(s.data);
-  else if (Object.keys(localState()).length) push(); // first time: this browser's list goes up
+  else if (before && before !== s.user) apply({}); // a new account here: start it empty, not with the last one's list
+  else if (Object.keys(localState()).length) push(); // this browser's first sign-in: its list goes up
 
   // Every write to local storage, from anywhere in the app
   const { setItem, removeItem } = Storage.prototype;
