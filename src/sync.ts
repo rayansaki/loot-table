@@ -20,6 +20,10 @@ let enabled = false;
 let rev = 0;
 let applying = false; // writing the server's copy into local storage: not a change to send back
 let timer: ReturnType<typeof setTimeout> | undefined;
+/** Changes made here, and the last one the server has: anything newer isn't saved yet */
+let edits = 0;
+let saved = 0;
+const unsaved = () => edits !== saved;
 
 function localState(): Record<string, string> {
   const out: Record<string, string> = {};
@@ -56,31 +60,42 @@ function apply(data: Record<string, string>): void {
   }
 }
 
-function push(keepalive = false): void {
+function push(keepalive = false, attempt = 0): void {
   clearTimeout(timer);
   timer = undefined;
+  const sending = edits;
   fetch("api/state", {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ data: localState() }),
     keepalive,
   })
-    .then((res) => (res.ok ? res.json() : null))
-    .then((s: ServerState | null) => {
-      if (s) rev = s.rev;
+    .then((res) => {
+      if (!res.ok) throw new Error(String(res.status));
+      return res.json() as Promise<ServerState>;
     })
-    .catch(() => {});
+    .then((s) => {
+      rev = s.rev;
+      saved = Math.max(saved, sending);
+    })
+    .catch(() => {
+      // A server that was asleep can fail the first request while it wakes: try again shortly
+      if (attempt < 8 && unsaved() && timer === undefined) {
+        timer = setTimeout(() => push(false, attempt + 1), Math.min(2000 * (attempt + 1), 10000));
+      }
+    });
 }
 
 function changed(key: string): void {
   if (!enabled || applying || !isSynced(key)) return;
+  edits++;
   clearTimeout(timer);
   timer = setTimeout(push, 800);
 }
 
 /** Back in view: if another browser changed the list meanwhile, show its version */
 async function refresh(): Promise<void> {
-  if (timer !== undefined) return; // our own change is on its way up: it wins
+  if (unsaved()) return; // our own change is on its way up: it wins
   const s = await fetchState();
   if (s && s.user !== localStorage.getItem(ACCOUNT_KEY)) return location.reload(); // signed in as someone else meanwhile
   if (!s || s.rev === rev) return;
@@ -105,7 +120,10 @@ export async function initSync(): Promise<void> {
   localStorage.setItem(ACCOUNT_KEY, s.user);
   if (Object.keys(s.data).length) apply(s.data);
   else if (before && before !== s.user) apply({}); // a new account here: start it empty, not with the last one's list
-  else if (Object.keys(localState()).length) push(); // this browser's first sign-in: its list goes up
+  else if (Object.keys(localState()).length) {
+    edits++; // this browser's first sign-in: its list goes up
+    push();
+  }
 
   // Every write to local storage, from anywhere in the app
   const { setItem, removeItem } = Storage.prototype;
@@ -120,7 +138,7 @@ export async function initSync(): Promise<void> {
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
-      if (timer !== undefined) push(true); // leaving with a change not yet sent
+      if (unsaved()) push(true); // leaving with a change not yet saved
     } else {
       void refresh();
     }
