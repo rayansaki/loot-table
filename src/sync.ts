@@ -91,6 +91,9 @@ async function refresh(): Promise<void> {
   }
 }
 
+/** Whose list this is, when syncing; null otherwise */
+export const syncAccount = (): string | null => (enabled ? localStorage.getItem(ACCOUNT_KEY) : null);
+
 /** Call before the app first renders */
 export async function initSync(): Promise<void> {
   if ("__TAURI_INTERNALS__" in window) return;

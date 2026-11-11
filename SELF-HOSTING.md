@@ -4,7 +4,7 @@ This fork adds a small server (`server.mjs`) so each person's tier list follows 
 browsers. The app itself is unchanged: it still keeps the list in the browser, and copies it to and
 from your server.
 
-There are two accounts, **Rayan** and **Nicola**, each with its own list, and no passwords: anyone
+There are two accounts, **Rodrigo** and **Nicola**, each with its own list, and no passwords: anyone
 who can reach the site can pick either one. So keep the site private, with Cloudflare Access for
 example. To change the accounts, edit `ACCOUNTS` near the top of `server.mjs`.
 
@@ -18,18 +18,17 @@ example. To change the accounts, edit `ACCOUNTS` near the top of `server.mjs`.
 4. Don't keep a `*.up.railway.app` domain: that address skips Cloudflare, so anyone who found it
    could open the site and change your lists. Delete it in **Settings → Networking** if Railway made
    one.
-5. In each browser, open `https://your-domain/login` once and pick your name. From then on that
-   browser syncs that person's list.
+5. Open the site in each browser: it asks who you are the first time. From then on that browser
+   syncs that person's list.
 
 The first time someone picks their name, the list already in that browser is uploaded to their
 account. After that, the server's copy wins when a page opens, and a tab you come back to picks up
 changes made elsewhere.
 
-`/login` also shows which person a browser is, and lets you switch. `/logout` stops syncing in
-that browser.
+The **Change account** button at the top right of the app switches to the other person's list.
 
 ## Keeping up with the original
 
 On GitHub, **Sync fork → Update branch** when it says you're behind. Railway redeploys by itself.
-The only original file this fork changes is `src/main.tsx` (a few lines), so syncs should go
-through cleanly.
+The only original files this fork changes are `src/main.tsx` and `src/App.tsx` (a few lines each),
+so syncs should go through cleanly.

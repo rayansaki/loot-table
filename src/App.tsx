@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { BoardProvider, DrawerCtx } from "./board";
+import AccountButton from "./components/AccountButton";
 import WorkDrawer from "./components/WorkDrawer";
 import CommunityPage from "./pages/CommunityPage";
 import SharedPage from "./pages/SharedPage";
@@ -66,6 +67,7 @@ export default function App() {
             ))}
           </nav>
           <DataDate />
+          <AccountButton />
         </header>
         <main>
           {shared ? <SharedPage fragment={shared} /> : <Component />}
