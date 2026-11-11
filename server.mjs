@@ -1,16 +1,14 @@
 // Serves the built website, plus a place to keep tier lists so every browser sees the same one.
 // Only for hosting it yourself (Railway, say); the app works without it. No packages needed.
 //
-// The accounts are in ACCOUNTS below, each with its own list. Settings (environment variables):
-//   PASSWORD_RAYAN, PASSWORD_NICOLA   each account's password; an account without one is off
+// The accounts are in ACCOUNTS below, each with its own list. There are no passwords: whoever can
+// reach the site can pick an account at /login, so keep the site itself private (Cloudflare Access,
+// say). A browser that hasn't picked one gets the plain app, without sync. Pick once per browser.
+//
+// Settings (environment variables):
 //   DATA_DIR       where the lists are saved: a persistent volume (default /data)
 //   PORT           set by the host (default 8080)
-//
-// Without any password, sync is off and this just serves the site. Anyone can use the site (a share
-// link you send works for friends), but only a browser signed in at /login reads and writes a saved
-// list: its account's. Sign in once per browser.
 
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
@@ -20,15 +18,8 @@ const DATA_DIR = process.env.DATA_DIR || "/data";
 const DIST = join(import.meta.dirname, "dist");
 const COOKIE = "lt_sync";
 const MAX_BODY = 2 * 1024 * 1024;
-/** The accounts. To add one, add its name here and a PASSWORD_<NAME> variable on the server. */
+/** The accounts: letters, digits, - and _ */
 const ACCOUNTS = ["Rayan", "Nicola"];
-
-/** name -> password, for the accounts that have one */
-const USERS = new Map();
-for (const name of ACCOUNTS) {
-  const password = (process.env[`PASSWORD_${name.toUpperCase()}`] || "").trim();
-  if (password) USERS.set(name, password);
-}
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -42,21 +33,11 @@ const TYPES = {
   ".woff2": "font/woff2",
 };
 
-function same(a, b) {
-  const x = Buffer.from(a);
-  const y = Buffer.from(b);
-  return x.length === y.length && timingSafeEqual(x, y);
-}
-
-// The cookie is the account name, signed with its password: changing a password signs that
-// account out everywhere
-const sign = (name) => createHmac("sha256", `loot-table-sync:${USERS.get(name)}`).update(name).digest("hex");
-
+/** The account this browser picked, from its cookie */
 function signedInAs(req) {
   const m = (req.headers.cookie || "").match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`));
-  if (!m) return null;
-  const [name, sig] = decodeURIComponent(m[1]).split(".");
-  return USERS.has(name) && sig && same(sig, sign(name)) ? name : null;
+  const name = m ? decodeURIComponent(m[1]) : null;
+  return ACCOUNTS.includes(name) ? name : null;
 }
 
 const stateFile = (name) => join(DATA_DIR, "users", `${name}.json`);
@@ -101,58 +82,44 @@ function readBody(req) {
 
 const esc = (s) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-function loginPage(res, { user = null, error = "" } = {}) {
+function loginPage(res, user) {
   const status = user
-    ? `<p>Signed in as <b>${esc(user)}</b>. <a href="./">Back to Loot Table</a> · <a href="./logout">Sign out</a></p>
-       <p class="hint">To switch account, sign in below as someone else.</p>`
-    : `<p class="hint">Sign in once in each browser, and your tier list follows you.</p>`;
+    ? `<p>This browser is <b>${esc(user)}</b>. <a href="./">Back to Loot Table</a> · <a href="./logout">Stop syncing</a></p>`
+    : `<p class="hint">Pick once in each browser, and your tier list follows you.</p>`;
+  const buttons = ACCOUNTS.map(
+    (n) => `<button name="user" value="${esc(n)}"${n === user ? ' class="current"' : ""}>${esc(n)}</button>`,
+  ).join("");
   send(
     res,
-    error ? 401 : 200,
+    200,
     `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · Loot Table</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Who's this? · Loot Table</title>
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
 <style>
   body { font: 16px/1.5 system-ui, sans-serif; background: #15171c; color: #e8e6e3; display: grid; place-items: center; min-height: 100vh; margin: 0; }
   main { width: min(340px, 90vw); }
   h1 { font-size: 1.4rem; margin: 0 0 .5rem; }
-  label { display: block; margin: .8rem 0 .2rem; font-size: .9rem; color: #b8b5b0; }
-  input, select { width: 100%; box-sizing: border-box; padding: .6rem .7rem; border-radius: 8px; border: 1px solid #3a3d45; background: #1e2128; color: inherit; font: inherit; }
-  button { margin-top: 1.2rem; width: 100%; padding: .65rem; border: 0; border-radius: 8px; background: #d9a441; color: #15171c; font: inherit; font-weight: 600; cursor: pointer; }
+  form { display: grid; gap: .7rem; margin-top: 1.2rem; }
+  button { padding: .8rem; border: 1px solid #3a3d45; border-radius: 10px; background: #1e2128; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+  button:hover, button.current { border-color: #d9a441; color: #d9a441; }
   a { color: #d9a441; }
   .hint { color: #8d8a85; font-size: .9rem; }
-  .error { color: #ff8a80; }
 </style></head><body><main>
-<h1>Loot Table</h1>
+<h1>Who's this?</h1>
 ${status}
-${error ? `<p class="error">${esc(error)}</p>` : ""}
-<form method="post" action="./login">
-  <label for="u">Account</label><select id="u" name="user" autocomplete="username">
-    ${[...USERS.keys()].map((n) => `<option${n === user ? " selected" : ""}>${esc(n)}</option>`).join("")}
-  </select>
-  <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required>
-  <button>Sign in</button>
-</form>
+<form method="post" action="./login">${buttons}</form>
 </main></body></html>`,
     { "content-type": "text/html; charset=utf-8" },
   );
 }
 
 async function login(req, res) {
-  if (!USERS.size) {
-    return send(res, 404, "Sync is off: set PASSWORD_RAYAN or PASSWORD_NICOLA on the server.", { "content-type": "text/plain" });
-  }
-  if (req.method !== "POST") return loginPage(res, { user: signedInAs(req) });
-  const form = new URLSearchParams(await readBody(req));
-  const name = (form.get("user") || "").trim();
-  const password = form.get("password") || "";
-  const real = [...USERS.keys()].find((n) => n.toLowerCase() === name.toLowerCase());
-  if (!real || !same(password, USERS.get(real))) {
-    return loginPage(res, { user: signedInAs(req), error: "That account and password don't match." });
-  }
+  if (req.method !== "POST") return loginPage(res, signedInAs(req));
+  const name = new URLSearchParams(await readBody(req)).get("user");
+  if (!ACCOUNTS.includes(name)) return loginPage(res, signedInAs(req));
   const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
   send(res, 303, "", {
-    "set-cookie": `${COOKIE}=${encodeURIComponent(`${real}.${sign(real)}`)}; Path=/; Max-Age=315360000; HttpOnly; SameSite=Lax${secure}`,
+    "set-cookie": `${COOKIE}=${encodeURIComponent(name)}; Path=/; Max-Age=315360000; HttpOnly; SameSite=Lax${secure}`,
     location: "./",
   });
 }
@@ -211,9 +178,6 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, () => {
   console.log(`Loot Table on port ${PORT}`);
-  if (!USERS.size) console.log("No passwords set (PASSWORD_RAYAN, PASSWORD_NICOLA): sync is off, the site works as on GitHub Pages.");
-  else {
-    console.log(`Sync on for ${[...USERS.keys()].join(", ")}, saving to ${join(DATA_DIR, "users")}`);
-    if (!existsSync(DATA_DIR)) console.log(`Warning: ${DATA_DIR} doesn't exist. Attach a volume there, or lists are lost on redeploy.`);
-  }
+  console.log(`Sync for ${ACCOUNTS.join(", ")}, saving to ${join(DATA_DIR, "users")}`);
+  if (!existsSync(DATA_DIR)) console.log(`Warning: ${DATA_DIR} doesn't exist. Attach a volume there, or lists are lost on redeploy.`);
 });

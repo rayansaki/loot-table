@@ -4,29 +4,29 @@ This fork adds a small server (`server.mjs`) so each person's tier list follows 
 browsers. The app itself is unchanged: it still keeps the list in the browser, and copies it to and
 from your server.
 
-There are two accounts, **Rayan** and **Nicola**, each with its own list. To change them, edit
-`ACCOUNTS` near the top of `server.mjs`.
+There are two accounts, **Rayan** and **Nicola**, each with its own list, and no passwords: anyone
+who can reach the site can pick either one. So keep the site private, with Cloudflare Access for
+example. To change the accounts, edit `ACCOUNTS` near the top of `server.mjs`.
 
 ## On Railway
 
 1. **New → Deploy from GitHub repo** → this repo. Railway sees the `Dockerfile` and builds with it.
-2. **Variables**: add `PASSWORD_RAYAN` and `PASSWORD_NICOLA`, each set to that person's password.
-   An account with no password can't sign in.
-3. **Volume**: right-click the service → **Attach volume**, mount path `/data`. Without it, saved
+2. **Volume**: right-click the service → **Attach volume**, mount path `/data`. Without it, saved
    lists are wiped on every redeploy.
-4. **Settings → Networking → Generate Domain**.
-5. In each browser, open `https://your-domain/login` once, pick your name and enter your password.
-   From then on that browser syncs that person's list.
+3. **Settings → Networking → Custom Domain**: add your domain, and point it at Railway from
+   Cloudflare as Railway tells you. Then put Cloudflare Access in front of that domain.
+4. Don't keep a `*.up.railway.app` domain: that address skips Cloudflare, so anyone who found it
+   could open the site and change your lists. Delete it in **Settings → Networking** if Railway made
+   one.
+5. In each browser, open `https://your-domain/login` once and pick your name. From then on that
+   browser syncs that person's list.
 
-The first time someone signs in, the list already in that browser is uploaded to their account.
-After that, the server's copy wins when a page opens, and a tab you come back to picks up changes
-made elsewhere.
+The first time someone picks their name, the list already in that browser is uploaded to their
+account. After that, the server's copy wins when a page opens, and a tab you come back to picks up
+changes made elsewhere.
 
-`/login` also shows who a browser is signed in as, and lets you switch. `/logout` signs out.
-Changing a password signs that person out everywhere.
-
-Anyone with the link can still use the site and open your share links; they just don't see or
-change your saved lists.
+`/login` also shows which person a browser is, and lets you switch. `/logout` stops syncing in
+that browser.
 
 ## Keeping up with the original
 
