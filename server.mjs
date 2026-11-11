@@ -3,7 +3,7 @@
 //
 // The accounts are in ACCOUNTS below, each with its own list. There are no passwords: whoever can
 // reach the site can pick an account at /login, so keep the site itself private (Cloudflare Access,
-// say). A browser that hasn't picked one gets the plain app, without sync. Pick once per browser.
+// say). A browser that hasn't picked one is sent there first. Pick once per browser.
 //
 // Settings (environment variables):
 //   DATA_DIR       where the lists are saved: a persistent volume (default /data)
@@ -19,7 +19,9 @@ const DIST = join(import.meta.dirname, "dist");
 const COOKIE = "lt_sync";
 const MAX_BODY = 2 * 1024 * 1024;
 /** The accounts: letters, digits, - and _ */
-const ACCOUNTS = ["Rayan", "Nicola"];
+const ACCOUNTS = ["Rodrigo", "Nicola"];
+/** Accounts that were renamed: old name -> new, so a saved list follows the new name */
+const RENAMED = { Rayan: "Rodrigo" };
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -84,7 +86,7 @@ const esc = (s) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 function loginPage(res, user) {
   const status = user
-    ? `<p>This browser is <b>${esc(user)}</b>. <a href="./">Back to Loot Table</a> · <a href="./logout">Stop syncing</a></p>`
+    ? `<p>This browser is <b>${esc(user)}</b>. <a href="./">Back to Loot Table</a></p>`
     : `<p class="hint">Pick once in each browser, and your tier list follows you.</p>`;
   const buttons = ACCOUNTS.map(
     (n) => `<button name="user" value="${esc(n)}"${n === user ? ' class="current"' : ""}>${esc(n)}</button>`,
@@ -107,7 +109,8 @@ function loginPage(res, user) {
 </style></head><body><main>
 <h1>Who's this?</h1>
 ${status}
-<form method="post" action="./login">${buttons}</form>
+<form method="post" action="./login"><input type="hidden" name="next" id="next">${buttons}</form>
+<script>document.getElementById("next").value = location.hash; // a share link you opened, kept for after</script>
 </main></body></html>`,
     { "content-type": "text/html; charset=utf-8" },
   );
@@ -115,12 +118,15 @@ ${status}
 
 async function login(req, res) {
   if (req.method !== "POST") return loginPage(res, signedInAs(req));
-  const name = new URLSearchParams(await readBody(req)).get("user");
+  const form = new URLSearchParams(await readBody(req));
+  const name = form.get("user");
   if (!ACCOUNTS.includes(name)) return loginPage(res, signedInAs(req));
+  const next = form.get("next") || "";
+  const hash = /^#[^\s"<>\\]*$/.test(next) && next.length < 20000 ? next : "";
   const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
   send(res, 303, "", {
     "set-cookie": `${COOKIE}=${encodeURIComponent(name)}; Path=/; Max-Age=315360000; HttpOnly; SameSite=Lax${secure}`,
-    location: "./",
+    location: `./${hash}`,
   });
 }
 
@@ -171,6 +177,8 @@ createServer(async (req, res) => {
     if (path === "/api/state") return await api(req, res);
     if (path === "/health") return send(res, 200, "ok");
     if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "Method not allowed");
+    // The app itself: pick who you are first
+    if ((path === "/" || path === "/index.html") && !signedInAs(req)) return send(res, 302, "", { location: "./login" });
     serveFile(req, res, path);
   } catch (err) {
     console.error(err);
@@ -179,5 +187,11 @@ createServer(async (req, res) => {
 }).listen(PORT, () => {
   console.log(`Loot Table on port ${PORT}`);
   console.log(`Sync for ${ACCOUNTS.join(", ")}, saving to ${join(DATA_DIR, "users")}`);
+  for (const [from, to] of Object.entries(RENAMED)) {
+    if (existsSync(stateFile(from)) && !existsSync(stateFile(to))) {
+      renameSync(stateFile(from), stateFile(to));
+      console.log(`Moved ${from}'s list to ${to}`);
+    }
+  }
   if (!existsSync(DATA_DIR)) console.log(`Warning: ${DATA_DIR} doesn't exist. Attach a volume there, or lists are lost on redeploy.`);
 });
