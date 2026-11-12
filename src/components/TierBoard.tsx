@@ -42,7 +42,7 @@ function Tile({ work }: { work: Work }) {
       ref={setNodeRef}
       className={`tile ${isDragging ? "dragging" : ""}`}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      title={`${work.title} — ${work.authors.join(", ")}`}
+      title={`${work.title} — ${work.authors.join(", ")}${work.custom ? "\nAdded by you: not used for recommendations" : ""}`}
       onClick={() => openWork(work.key)}
       {...attributes}
       {...listeners}

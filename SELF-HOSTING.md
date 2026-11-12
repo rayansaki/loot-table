@@ -27,8 +27,18 @@ changes made elsewhere.
 
 The **Change account** button at the top right of the app switches to the other person's list.
 
+## Your own series
+
+For a series Loot Table doesn't have: search for it, then **Can't find it? Add it as your own series**.
+The server looks it up on Audible UK so you can pick its cover (or paste an image link, or have none).
+It sits on your tier list with an amber frame. It doesn't feed recommendations, except that the
+author of one you rank S or A counts as an author you like. Click it to edit or delete it.
+
+They sync like the rest of your list and go along in Export files, but share links leave them out.
+
 ## Keeping up with the original
 
 On GitHub, **Sync fork → Update branch** when it says you're behind. Railway redeploys by itself.
-The only original files this fork changes are `src/main.tsx` and `src/App.tsx` (a few lines each),
-so syncs should go through cleanly.
+This fork changes a few lines in some of the original files (`main.tsx`, `App.tsx`, `api.ts`,
+`transfer.ts`, `engine/recommend.ts` and a few components); the rest is in files of its own. Most
+syncs go through cleanly; if GitHub reports a conflict, it's usually a line or two to settle.

@@ -7,6 +7,7 @@ import { norm, similarity } from "./engine/text";
 import { ANY_POPULARITY, describe, within, type PopFilter } from "./popularity";
 import { decode, encode } from "./share";
 import { readFile } from "./transfer";
+import { customWork, isCustom, likedCustomAuthors, readCustom, searchCustom } from "./custom";
 
 export const TIERS = ENGINE_TIERS;
 export type Tier = (typeof TIERS)[number];
@@ -31,6 +32,8 @@ export interface Work {
   tier: Tier | null;
   audibleUrl: string;
   status: SeriesStatus | null;
+  /** Added by you, not in the dataset (custom.ts) */
+  custom?: boolean;
 }
 
 /** Is the series finished: complete | ongoing | quiet (no book in 2 years) | abandoned | standalone */
@@ -183,7 +186,8 @@ function search(index: Index, q: string, limit: number): Work[] {
         .map((x) => x.w);
     }
   }
-  return hits.slice(0, limit).map((w) => toWork(w, mine.get(w.key) ?? null));
+  // Your own series that match come first
+  return [...searchCustom(q, mine), ...hits.slice(0, limit).map((w) => toWork(w, mine.get(w.key) ?? null))];
 }
 
 export const api = {
@@ -217,11 +221,17 @@ export const api = {
   board: async (): Promise<Board> => {
     const index = await load();
     const board: Board = { S: [], A: [], B: [], C: [], D: [], F: [], unplaced: [] };
+    const custom = readCustom();
     for (const [bucket, keys] of Object.entries(readStored()) as [Bucket, string[]][]) {
       if (!(bucket in board)) continue;
+      const tier = bucket === "unplaced" ? null : bucket;
       for (const k of keys ?? []) {
+        if (isCustom(k)) {
+          if (custom[k]) board[bucket].push(customWork(custom[k], tier));
+          continue;
+        }
         const w = index.works.get(k); // a series dropped from a newer dataset just disappears
-        if (w) board[bucket].push(toWork(w, bucket === "unplaced" ? null : bucket));
+        if (w) board[bucket].push(toWork(w, tier));
       }
     }
     return board;
@@ -264,7 +274,7 @@ export const api = {
   ): Promise<Recommendations> => {
     const index = await load();
     const { ranks, listened } = myRanks();
-    let recs = recommend(index, ranks, listened);
+    let recs = recommend(index, ranks, listened, likedCustomAuthors(readStored()));
     // Popularity first, so the tag counts are of what the slider keeps
     const popular = within(index, popularity);
     recs = recs.filter((r) => popular(index.works.get(r.key)!));
