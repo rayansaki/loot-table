@@ -2,22 +2,35 @@ import { TIERS, type Bucket, type SeriesStatus, type StoryTags, type Work } from
 import { useBoard } from "../board";
 
 export function Cover({ work, size = 72 }: { work: Pick<Work, "image" | "title" | "custom">; size?: number }) {
-  // Series you added yourself get an amber frame (custom.css)
-  const cls = `cover ${work.custom ? "cover-custom" : ""}`;
+  let cover;
   if (work.image) {
-    return (
-      <img className={cls} src={work.image} alt={work.title} width={size} height={size} loading="lazy" draggable={false} />
+    cover = (
+      <img className="cover" src={work.image} alt={work.title} width={size} height={size} loading="lazy" draggable={false} />
+    );
+  } else {
+    const initials = work.title
+      .split(/\s+/)
+      .slice(0, 3)
+      .map((w) => w[0])
+      .join("");
+    cover = (
+      <div className="cover cover-fallback" style={{ width: size, height: size }}>
+        {initials}
+      </div>
     );
   }
-  const initials = work.title
-    .split(/\s+/)
-    .slice(0, 3)
-    .map((w) => w[0])
-    .join("");
+  if (!work.custom) return cover;
+  // Series you added yourself: an amber frame and a corner flag (custom.css)
   return (
-    <div className={`${cls} cover-fallback`} style={{ width: size, height: size }}>
-      {initials}
-    </div>
+    <span className="cover-custom" style={{ ["--flag" as string]: `${Math.max(16, Math.round(size * 0.3))}px` }}>
+      {cover}
+      <span className="custom-flag" title="Added by you: not used for recommendations">
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <circle cx="5" cy="3.2" r="2.1" />
+          <path d="M1.2 10c0-2.3 1.7-3.9 3.8-3.9S8.8 7.7 8.8 10z" />
+        </svg>
+      </span>
+    </span>
   );
 }
 
