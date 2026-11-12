@@ -101,6 +101,8 @@ export function neighbourWeights(index: Index, myRanks: Map<string, number>): Ma
  * Everything worth recommending, best first.
  * @param myRanks placed works -> tier rank (0 = S)
  * @param listened every work on my list, placed or not: never recommended
+ * @param extraLikedAuthors authors of liked series that aren't in the dataset (ones you added
+ *   yourself), with those series' titles: they count for "same author" like any other
  */
 /** Popularity in 0..1: log of Reddit lists and of Audible ratings, each against the most popular work.
  * Also what For You's "combined" popularity slider measures. */
@@ -112,7 +114,12 @@ export function popularityOf(index: Index): (w: DataWork) => number {
     (0.5 * Math.log1p(w.ratingCount ?? 0)) / Math.log1p(mostRatings);
 }
 
-export function recommend(index: Index, myRanks: Map<string, number>, listened: Set<string>): Scored[] {
+export function recommend(
+  index: Index,
+  myRanks: Map<string, number>,
+  listened: Set<string>,
+  extraLikedAuthors: { author: string; title: string }[] = [],
+): Scored[] {
   const quality = index.data.quality;
   const weights = neighbourWeights(index, myRanks);
   const haveNeighbours = weights.size > 0;
@@ -141,6 +148,16 @@ export function recommend(index: Index, myRanks: Map<string, number>, listened: 
     if (rank > 1 || !w) continue;
     for (const a of w.authors.slice(0, 2)) likedAuthors.set(a, [...(likedAuthors.get(a) ?? []), w.title]);
     for (const n of w.narrators.slice(0, 1)) likedNarrators.set(n, [...(likedNarrators.get(n) ?? []), w.title]);
+  }
+  if (extraLikedAuthors.length) {
+    // Matched to the dataset's spelling of the name, ignoring case, spaces and punctuation
+    const nameKey = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+    const spelling = new Map<string, string>();
+    for (const w of index.data.works) for (const a of w.authors.slice(0, 2)) spelling.set(nameKey(a), a);
+    for (const { author, title } of extraLikedAuthors) {
+      const a = spelling.get(nameKey(author));
+      if (a) likedAuthors.set(a, [...(likedAuthors.get(a) ?? []), title]);
+    }
   }
 
   // Content: the best tag match among my liked works, minus half the best among disliked ones

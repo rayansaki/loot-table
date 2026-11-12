@@ -5,9 +5,13 @@
 // reach the site can pick an account at /login, so keep the site itself private (Cloudflare Access,
 // say). A browser that hasn't picked one is sent there first. Pick once per browser.
 //
+// It also finds covers on Audible for series you add yourself (/api/covers), which the browser
+// can't ask Audible for directly.
+//
 // Settings (environment variables):
 //   DATA_DIR       where the lists are saved: a persistent volume (default /data)
 //   PORT           set by the host (default 8080)
+//   AUDIBLE_API    where cover searches go (default https://api.audible.co.uk, Audible UK)
 
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -18,6 +22,7 @@ const DATA_DIR = process.env.DATA_DIR || "/data";
 const DIST = join(import.meta.dirname, "dist");
 const COOKIE = "lt_sync";
 const MAX_BODY = 2 * 1024 * 1024;
+const AUDIBLE_API = (process.env.AUDIBLE_API || "https://api.audible.co.uk").replace(/\/$/, "");
 /** The accounts: letters, digits, - and _ */
 const ACCOUNTS = ["Rodrigo", "Nicola"];
 /** Accounts that were renamed: old name -> new, so a saved list follows the new name */
@@ -156,6 +161,65 @@ async function api(req, res) {
   json(res, 405, { error: "method not allowed" });
 }
 
+/** Recent cover searches, so typing the same thing twice doesn't ask Audible again */
+const coverCache = new Map();
+
+/** Audible's catalog search, as one match per series: the series name, its authors, and the cover of
+ * its earliest book. Books outside a series come back as themselves. */
+async function covers(req, res, params) {
+  if (!signedInAs(req)) return json(res, 401, { error: "not signed in" });
+  const title = (params.get("title") || "").trim().slice(0, 200);
+  const author = (params.get("author") || "").trim().slice(0, 200);
+  if (!title) return json(res, 400, { error: "no title" });
+  const cacheKey = `${title}|${author}`.toLowerCase();
+  const cached = coverCache.get(cacheKey);
+  if (cached && cached.at > Date.now() - 3600_000) return json(res, 200, { matches: cached.matches });
+
+  const query = new URLSearchParams({
+    keywords: `${title} ${author}`.trim(),
+    num_results: "25",
+    products_sort_by: "Relevance",
+    response_groups: "media,contributors,series",
+    image_sizes: "500",
+  });
+  let products;
+  try {
+    const r = await fetch(`${AUDIBLE_API}/1.0/catalog/products?${query}`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) throw new Error(`Audible answered ${r.status}`);
+    products = (await r.json()).products ?? [];
+  } catch (err) {
+    console.error(`Cover search for "${title}" failed: ${err.message}`);
+    return json(res, 502, { error: "Couldn't reach Audible" });
+  }
+
+  const bySeries = new Map(); // series (or book) -> its earliest book so far, and where it first came
+  for (const p of products) {
+    const series = p.series?.[0];
+    const id = series?.asin ?? `book:${p.asin}`;
+    const seq = parseFloat(series?.sequence);
+    const order = Number.isFinite(seq) ? seq : Infinity;
+    const prev = bySeries.get(id);
+    if (prev && prev.order <= order) continue;
+    bySeries.set(id, {
+      order,
+      rank: prev ? prev.rank : bySeries.size,
+      match: {
+        title: series?.title ?? p.title ?? "",
+        authors: (p.authors ?? []).map((a) => a.name).filter(Boolean).slice(0, 3),
+        image: p.product_images?.["500"] ?? Object.values(p.product_images ?? {})[0] ?? null,
+        asin: p.asin,
+      },
+    });
+  }
+  const matches = [...bySeries.values()].sort((a, b) => a.rank - b.rank).slice(0, 8).map((x) => x.match);
+  if (coverCache.size > 200) coverCache.clear();
+  coverCache.set(cacheKey, { at: Date.now(), matches });
+  json(res, 200, { matches });
+}
+
 function serveFile(req, res, path) {
   const rel = normalize(decodeURIComponent(path)).replace(/^[/\\]+/, "");
   let file = join(DIST, rel);
@@ -171,10 +235,12 @@ function serveFile(req, res, path) {
 
 createServer(async (req, res) => {
   try {
-    const path = new URL(req.url, "http://x").pathname;
+    const url = new URL(req.url, "http://x");
+    const path = url.pathname;
     if (path === "/login") return await login(req, res);
     if (path === "/logout") return logout(req, res);
     if (path === "/api/state") return await api(req, res);
+    if (path === "/api/covers") return await covers(req, res, url.searchParams);
     if (path === "/health") return send(res, 200, "ok");
     if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "Method not allowed");
     // The app itself: pick who you are first

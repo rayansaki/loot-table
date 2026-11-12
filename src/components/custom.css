@@ -1,0 +1,150 @@
+/* Series you added yourself (custom.ts) */
+
+/* The amber frame: everywhere a cover of one shows */
+.cover.cover-custom {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.add-custom {
+  margin: 0 2px 8px;
+  width: calc(100% - 4px);
+  border-style: dashed;
+  color: var(--muted);
+  padding: 8px 10px;
+  text-align: left;
+}
+.add-custom:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.custom-tag {
+  color: var(--accent);
+}
+
+/* The add / edit form */
+.custom-form {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 22px 22px 18px;
+  z-index: 30;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.custom-form h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+.scrim:has(+ .custom-form) {
+  z-index: 29;
+}
+.custom-fields {
+  display: flex;
+  gap: 14px;
+  margin: 14px 0;
+  align-items: flex-start;
+}
+.custom-inputs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.custom-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.custom-inputs input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.custom-cover-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.custom-link {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.custom-link input {
+  flex: 1;
+  min-width: 0;
+}
+.custom-matches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.custom-match {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  background: none;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.custom-match.picked {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+.custom-match-title {
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.custom-match-author {
+  font-size: 11px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.custom-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.custom-actions .tier-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The detail panel */
+.custom-note {
+  margin: 18px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.custom-note b {
+  color: var(--accent);
+}
+.custom-drawer-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}

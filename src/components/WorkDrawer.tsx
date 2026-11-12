@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, hours, type WorkDetail } from "../api";
+import { isCustom } from "../custom";
 import { Cover, StatusLine, Stars, Tags, TierButtons } from "./common";
+import CustomSeriesDrawer from "./CustomSeriesDrawer";
 
 const BOOKS_SHOWN = 10;
 
@@ -176,7 +178,7 @@ export default function WorkDrawer({ workKey, onClose }: { workKey: string | nul
   useEffect(() => {
     setWork(null);
     setAllBooks(false);
-    if (workKey) api.work(workKey).then(setWork);
+    if (workKey && !isCustom(workKey)) api.work(workKey).then(setWork);
   }, [workKey]);
 
   useEffect(() => {
@@ -187,6 +189,7 @@ export default function WorkDrawer({ workKey, onClose }: { workKey: string | nul
 
   const rows = work ? groupBooks(work.books) : [];
   if (!workKey) return null;
+  if (isCustom(workKey)) return <CustomSeriesDrawer workKey={workKey} onClose={onClose} />;
   return (
     <>
       <div className="scrim" onClick={onClose} />

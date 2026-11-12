@@ -1,10 +1,12 @@
 import { TIERS, type Bucket, type SeriesStatus, type StoryTags, type Work } from "../api";
 import { useBoard } from "../board";
 
-export function Cover({ work, size = 72 }: { work: Pick<Work, "image" | "title">; size?: number }) {
+export function Cover({ work, size = 72 }: { work: Pick<Work, "image" | "title" | "custom">; size?: number }) {
+  // Series you added yourself get an amber frame (custom.css)
+  const cls = `cover ${work.custom ? "cover-custom" : ""}`;
   if (work.image) {
     return (
-      <img className="cover" src={work.image} alt={work.title} width={size} height={size} loading="lazy" draggable={false} />
+      <img className={cls} src={work.image} alt={work.title} width={size} height={size} loading="lazy" draggable={false} />
     );
   }
   const initials = work.title
@@ -13,7 +15,7 @@ export function Cover({ work, size = 72 }: { work: Pick<Work, "image" | "title">
     .map((w) => w[0])
     .join("");
   return (
-    <div className="cover cover-fallback" style={{ width: size, height: size }}>
+    <div className={`${cls} cover-fallback`} style={{ width: size, height: size }}>
       {initials}
     </div>
   );
