@@ -26,15 +26,37 @@ const listeners = new Set<() => void>();
 function read(): Library {
   try {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY) ?? "null");
-    if (raw?.v === 1) return { ...emptyLibrary(), ...raw, settings: { ...emptyLibrary().settings, ...raw.settings } };
+    if (raw?.v === 1) return migrate({ ...emptyLibrary(), ...raw, settings: { ...emptyLibrary().settings, ...raw.settings } });
   } catch {
     /* start empty */
   }
   return emptyLibrary();
 }
 
+/** Extras used to start unticked; now they count unless you untick them. The first build was out
+ * for minutes, so an unticked extra is the old default, not a choice: tick them all, once. */
+function migrate(l: Library): Library {
+  if (l.migrated?.includes("extras-on")) return l;
+  for (const s of Object.values(l.series)) for (const b of s.books) if (b.extra && b.include === false) delete b.include;
+  l.migrated = [...(l.migrated ?? []), "extras-on"];
+  return l;
+}
+
 export function getLibrary(): Library {
-  return (lib ??= read());
+  if (!lib) {
+    const stored = localStorage.getItem(STORE_KEY);
+    lib = read();
+    // Save what migrate() changed, so it's done once (and synced)
+    const now = JSON.stringify(lib);
+    if (stored && stored !== now) {
+      try {
+        localStorage.setItem(STORE_KEY, now);
+      } catch {
+        /* keep it in memory */
+      }
+    }
+  }
+  return lib;
 }
 
 function commit(next: Library): void {
@@ -221,9 +243,18 @@ export function setLength(key: string, bookId: string, minutes: number | null): 
   });
 }
 
+/** Not going to listen to it; or changed your mind */
+export function setSkip(key: string, bookId: string, skip: boolean): void {
+  changeBook(key, bookId, (b) => {
+    if (skip) b.skip = true;
+    else delete b.skip;
+  });
+}
+
 export function setInclude(key: string, bookId: string, include: boolean): void {
   changeBook(key, bookId, (b) => {
-    b.include = include;
+    if (include) delete b.include;
+    else b.include = false;
   });
 }
 

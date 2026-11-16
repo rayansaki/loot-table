@@ -77,10 +77,28 @@ describe("a year's stats", () => {
 describe("merging Audible's listing into a series you have", () => {
   const first = mergeAudible(audible([["1", "B1", 600], ["2", "B2", 620], [null, "X1", 200]]));
 
-  it("starts with no dates, and extras not counted", () => {
+  it("starts with no dates, extras counted", () => {
     expect(first.series.key).toBe("series:SERIES0001");
     expect(first.added).toEqual([]);
-    expect(remaining(first.series)).toEqual({ books: 2, minutes: 1220 });
+    expect(remaining(first.series)).toEqual({ books: 3, minutes: 1420 });
+  });
+
+  it("leaves out skipped books and unticked extras, and keeps both choices through a refresh", () => {
+    const mine: LibSeries = structuredClone(first.series);
+    mine.books[1].skip = true;
+    mine.books[2].include = false;
+    expect(remaining(mine)).toEqual({ books: 1, minutes: 600 });
+    mine.books[0].finished = "2026-01-10";
+    expect(nextBook(mine)).toBeNull();
+    const again = mergeAudible(audible([["1", "B1", 600], ["2", "B2", 620], [null, "X1", 200]]), mine).series;
+    expect([again.books[1].skip, again.books[2].include]).toEqual([true, false]);
+  });
+
+  it("puts an included 3.5 between 3 and 4 as the next book", () => {
+    const s = mergeAudible(audible([["3", "B3", 600], ["3.5", "N35", 120], ["4", "B4", 600]].map(([n, a, m]) => [n, a, m] as [string, string, number]))).series;
+    s.books[1].extra = true;
+    s.books[0].finished = "2026-01-01";
+    expect(nextBook(s)?.asin).toBe("N35");
   });
 
   it("keeps your dates and lengths, follows a new edition by number, and spots a new book", () => {

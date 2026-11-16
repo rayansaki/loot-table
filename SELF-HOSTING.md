@@ -40,9 +40,11 @@ They sync like the rest of your list and go along in Export files, but share lin
 
 The **Library** tab tracks what you're listening to, Up next, a wishlist, and when you started and
 finished each book, with stats by month and year. Book lists, numbers and lengths come from Audible
-UK through the server (one book per number: the newest edition, box sets left out, side books as
-optional extras), and each series is checked again at most once a day when you open the Library,
+UK through the server (one book per number: the newest edition, box sets left out, side books and
+half-numbered novellas as extras), and each series is checked again at most once a day when you open the Library,
 so a new book in a series you're caught up on shows up as NEW (and joins Up next).
+
+Every book counts towards progress, extras included, unless you **Skip** it on the series page.
 
 Hours in the stats are spread evenly over the days between a book's start and finish dates; a book
 with no start date counts in the month you finished it.

@@ -33,6 +33,7 @@ import {
   setDates,
   setInclude,
   setLength,
+  setSkip,
   startBook,
   toWishlist,
   updateSeries,
@@ -180,30 +181,24 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                 <span />
               </div>
               {s.books.map((b) => {
-                const off = b.extra && !b.include;
+                const off = !!b.skip || (b.extra && b.include === false);
                 const days = hasDate(b.started) && hasDate(b.finished) && b.started <= b.finished ? daysBetween(b.started, b.finished) + 1 : null;
                 const open = editing === b.id || bad?.id === b.id;
                 const split = open && !off ? splitByMonth(b) : null;
                 const fresh = isNew && !b.finished && !b.started && b.id === nb?.id;
                 return (
                   <div key={b.id} className={`lib-book ${off ? "off" : ""}`} onFocus={() => setEditing(b.id)}>
-                    {b.extra ? (
-                      <input
-                        type="checkbox"
-                        checked={!!b.include}
-                        onChange={(e) => setInclude(s.key, b.id, e.target.checked)}
-                        aria-label={`Count ${b.title}`}
-                        title="Count this extra"
-                        style={{ width: 18, height: 18 }}
-                      />
-                    ) : (
-                      <span className={`lib-check ${b.finished ? "done" : isListening(b) ? "listening" : fresh ? "new" : ""}`} aria-hidden="true">
-                        {b.finished ? "✓" : isListening(b) ? "▸" : ""}
-                      </span>
-                    )}
+                    <span className={`lib-check ${off ? "" : b.finished ? "done" : isListening(b) ? "listening" : fresh ? "new" : ""}`} aria-hidden="true">
+                      {off ? "–" : b.finished ? "✓" : isListening(b) ? "▸" : ""}
+                    </span>
                     <span className="muted small">{b.n ?? (b.extra ? "Extra" : "")}</span>
                     <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }} title={b.title}>
                       {b.title}
+                      {off ? (
+                        <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>Skipped</span>
+                      ) : b.extra && b.n ? (
+                        <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>Extra</span>
+                      ) : null}
                       {fresh && <span className="lib-new-line" style={{ display: "inline", marginLeft: 8 }}>New</span>}
                     </span>
                     <LengthInput value={b.minutes} onChange={(m) => setLength(s.key, b.id, m)} label={`Length of ${b.title}`} />
@@ -361,9 +356,22 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
   );
 }
 
-/** One button per book: start it, finish it, or undo */
+/** A book's buttons: start or skip it, finish it, or undo */
 function BookAction({ s, b }: { s: LibSeries; b: LibBook }) {
-  if (b.extra && !b.include) return <span />;
+  if (b.skip || (b.extra && b.include === false))
+    return (
+      <button
+        type="button"
+        className="lib-sm"
+        title="Count this book again"
+        onClick={() => {
+          setSkip(s.key, b.id, false);
+          if (b.include === false) setInclude(s.key, b.id, true);
+        }}
+      >
+        Unskip
+      </button>
+    );
   if (isListening(b))
     return (
       <button type="button" className="lib-sm" title="Mark finished today" aria-label={`Mark ${b.title} finished`} onClick={() => finishBook(s.key, b.id)}>
@@ -381,9 +389,14 @@ function BookAction({ s, b }: { s: LibSeries; b: LibBook }) {
       </button>
     );
   return (
-    <button type="button" className="lib-sm" title="Start today" aria-label={`Start ${b.title}`} onClick={() => startBook(s.key, b.id)}>
-      ▸
-    </button>
+    <span style={{ display: "flex", gap: 4 }}>
+      <button type="button" className="lib-sm" title="Start today" aria-label={`Start ${b.title}`} onClick={() => startBook(s.key, b.id)}>
+        ▸
+      </button>
+      <button type="button" className="lib-sm" title="Not listening to this one: it won't count" aria-label={`Skip ${b.title}`} onClick={() => setSkip(s.key, b.id, true)}>
+        Skip
+      </button>
+    </span>
   );
 }
 
