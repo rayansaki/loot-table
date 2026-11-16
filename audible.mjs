@@ -44,7 +44,8 @@ export function cleanBooks(entries) {
       n: seq || null,
       title: p.title ?? "",
       minutes: Number.isFinite(p.runtime_length_min) ? p.runtime_length_min : null,
-      released: p.release_date ?? null,
+      // Audible uses far-future dates (2200-01-01) as "unknown"
+      released: p.release_date && p.release_date < "2100" ? p.release_date : null,
       image: image(p),
       dramatised: DRAMATISED.test(label),
     };

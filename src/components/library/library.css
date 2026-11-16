@@ -613,15 +613,16 @@ a.lib-tr:hover {
   flex-direction: column;
   gap: 20px;
 }
+/* Scrolls sideways only when the card is really narrower than this (a tablet, or a phone) */
 .lib-books {
-  min-width: 960px;
+  min-width: 860px;
 }
 .lib-book > span {
   white-space: nowrap;
 }
 .lib-book {
   display: grid;
-  grid-template-columns: 28px 34px minmax(0, 1fr) 64px 136px 128px 128px 40px 92px;
+  grid-template-columns: 28px 34px minmax(140px, 1fr) 64px 132px 124px 124px 40px 106px;
   gap: 10px;
   align-items: center;
   padding: 7px 20px;

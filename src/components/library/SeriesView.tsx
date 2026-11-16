@@ -11,6 +11,7 @@ import {
   hasDate,
   isListening,
   isOut,
+  releaseDate,
   listened,
   mainBooks,
   nextBook,
@@ -217,7 +218,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                     </span>
                     <LengthInput value={b.minutes} onChange={(m) => setLength(s.key, b.id, m)} label={`Length of ${b.title}`} />
                     <span className={`small ${coming ? "lib-warn" : "muted"}`} title={coming ? "Not out yet: it doesn't count until it is" : undefined}>
-                      {b.released ? `${coming ? "Coming " : ""}${fmtDate(b.released)}` : ""}
+                      {releaseDate(b) ? `${coming ? "Coming " : ""}${fmtDate(releaseDate(b))}` : ""}
                     </span>
                     <input
                       className={`lib-date ${bad?.id === b.id ? "bad" : ""}`}

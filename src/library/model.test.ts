@@ -155,6 +155,13 @@ describe("books not out yet", () => {
     expect(day.news?.asin).toBe("B3");
   });
 
+  it("ignore Audible's placeholder date for unknown (2200-01-01)", () => {
+    const p = structuredClone(s);
+    p.books[2].released = "2200-01-01";
+    expect(upcoming(p)).toEqual([]);
+    expect(remaining(p).books).toBe(2);
+  });
+
   it("don't count as news the first time a series is checked", () => {
     expect(releaseCheck({ ...s, seen: undefined }).news).toBeNull();
   });
