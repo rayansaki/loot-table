@@ -322,33 +322,52 @@ export function setBookFormat(key: string, bookId: string, format: Format | null
 let pagesOff = false; // no key on the server, or no server: stop asking this visit
 const asking = new Set<string>();
 
-/** Page counts for the books you read (or will) that haven't got one: from Google Books, by title
- * and author. A count you typed is never replaced. At most `limit` lookups. */
-export async function fillPages(key: string, limit = 40): Promise<number> {
-  if (pagesOff) return 0;
+/** Page counts for the books you read (or will) that haven't got one: from Google Books, by the
+ * series' name and the book's number (or its own title). A count you typed is never replaced; one
+ * Google Books didn't have is asked for again after a month. `again` looks every book up afresh (the
+ * "look up page counts again" button). At most `limit` lookups. */
+export async function fillPages(key: string, limit = 40, again = false): Promise<{ looked: number; found: number; failed?: string }> {
+  if (again) pagesOff = false;
+  if (pagesOff) return { looked: 0, found: 0 };
   const l = getLibrary();
   const s = l.series[key];
-  if (!s) return 0;
-  const want = s.books.filter((b) => !b.skip && b.pages == null && !b.pagesEdited && formatOf(l, s, b) === "read" && !asking.has(`${key}|${b.id}`));
-  let got = 0;
+  if (!s) return { looked: 0, found: 0 };
+  const monthAgo = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+  const want = s.books.filter(
+    (b) =>
+      !b.skip &&
+      !b.pagesEdited &&
+      formatOf(l, s, b) === "read" &&
+      !asking.has(`${key}|${b.id}`) &&
+      (again || b.pages == null || (b.pages === 0 && (!b.pagesChecked || b.pagesChecked < monthAgo))),
+  );
+  let looked = 0;
+  let found = 0;
   for (const b of want.slice(0, limit)) {
     asking.add(`${key}|${b.id}`);
     try {
-      const { pages } = await getJson<{ pages: number | null }>(
-        `api/books/pages?title=${encodeURIComponent(b.title)}&author=${encodeURIComponent(s.authors[0] ?? "")}`,
-      );
+      const q = new URLSearchParams({ title: b.title, author: s.authors[0] ?? "" });
+      if (s.kind === "series") {
+        q.set("series", s.title);
+        if (b.n) q.set("n", b.n);
+      }
+      if (again) q.set("fresh", "1");
+      const { pages } = await getJson<{ pages: number | null }>(`api/books/pages?${q}`);
       changeBook(key, b.id, (x) => {
-        if (x.pages == null && !x.pagesEdited) x.pages = pages ?? 0; // 0: looked, none found
+        if (x.pagesEdited) return;
+        if (pages || again || x.pages == null || x.pages === 0) x.pages = pages ?? 0; // 0: asked, none found
+        x.pagesChecked = today();
       });
-      got++;
-    } catch {
+      looked++;
+      if (pages) found++;
+    } catch (e) {
       pagesOff = true;
-      break;
+      return { looked, found, failed: e instanceof Error ? e.message : "Couldn't reach Google Books" };
     } finally {
       asking.delete(`${key}|${b.id}`);
     }
   }
-  return got;
+  return { looked, found };
 }
 
 /** Page counts for every series you read, a few at a time, when the Library opens */
@@ -356,7 +375,7 @@ export async function fillAllPages(limit = 60): Promise<void> {
   let left = limit;
   for (const s of Object.values(getLibrary().series)) {
     if (left <= 0 || pagesOff) return;
-    left -= await fillPages(s.key, left);
+    left -= (await fillPages(s.key, left)).looked;
   }
 }
 
