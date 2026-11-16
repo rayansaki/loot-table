@@ -6,6 +6,8 @@
  *   book         its number in the series ("3", "3.5")
  *   title        the book's title (matches unnumbered extras, or names a book Audible hasn't got)
  *   length       how long it is ("18:14", "18h 14m")
+ *   pages        how many pages it has
+ *   format       "read" or "listen" (else your usual)
  *   started      when you started it (YYYY-MM-DD, or DD/MM/YYYY)
  *   finished     when you finished it
  *   list         "next" (Up next, in the order they appear) or "wish" (wishlist)
@@ -23,6 +25,8 @@ export interface CsvRow {
   book: string;
   title: string;
   length: string;
+  pages: string;
+  format: string;
   started: string;
   finished: string;
   list: string;
@@ -40,6 +44,8 @@ export function parseCsv(text: string): { rows: CsvRow[]; error?: string } {
     book: col("book", "number", "book_number", "#", "n"),
     title: col("title", "book_title"),
     length: col("length", "duration", "runtime"),
+    pages: col("pages", "page_count", "pagecount"),
+    format: col("format", "type", "medium"),
     started: col("started", "start", "start_date", "date_started"),
     finished: col("finished", "finish", "end", "finish_date", "date_finished", "completed"),
     list: col("list", "place", "status"),
@@ -52,6 +58,8 @@ export function parseCsv(text: string): { rows: CsvRow[]; error?: string } {
     book: get(r, at.book),
     title: get(r, at.title),
     length: get(r, at.length),
+    pages: get(r, at.pages),
+    format: get(r, at.format).toLowerCase(),
     started: get(r, at.started),
     finished: get(r, at.finished),
     list: get(r, at.list).toLowerCase(),
@@ -164,6 +172,13 @@ export async function importRows(rows: CsvRow[], onProgress: (done: number, tota
         book.minutes = minutes;
         book.edited = true;
       }
+      const pages = parseInt(r.pages.replace(/[^\d]/g, ""), 10);
+      if (pages > 0) {
+        book.pages = pages;
+        book.pagesEdited = true;
+      }
+      if (/^(read|e-?book|kindle|print|book|paper)/.test(r.format)) book.format = "read";
+      else if (/^(listen|audio)/.test(r.format)) book.format = "listen";
       if (book.extra) delete book.include; // you listened to it: it counts
       result.books++;
     }

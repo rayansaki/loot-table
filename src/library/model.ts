@@ -4,6 +4,9 @@
  * and lengths come from Audible, through the server (audible.mjs); the dates are yours. Everything
  * here is plain functions over the data; store.ts holds it and saves it. */
 
+/** Listened to (an audiobook) or read (an ebook or print) */
+export type Format = "listen" | "read";
+
 export interface LibBook {
   /** Audible ASIN, or a made-up id for one you added by hand */
   id: string;
@@ -14,6 +17,13 @@ export interface LibBook {
   minutes: number | null;
   /** You set the length yourself: Audible's doesn't replace it */
   edited?: boolean;
+  /** How many pages, for reading: Google Books' count, or yours (pagesEdited) */
+  pages?: number | null;
+  pagesEdited?: boolean;
+  /** Read or listened, when it's not the series' way (see formatOf) */
+  format?: Format;
+  /** Its Google Books volume, for a book that came from there */
+  gid?: string | null;
   released?: string | null;
   /** A side book (unnumbered, or half-numbered like 3.5): counts unless you untick it (include: false) */
   extra?: boolean;
@@ -37,6 +47,11 @@ export interface LibSeries {
   books: LibBook[];
   /** On your wishlist rather than in your library proper */
   wish?: boolean;
+  /** Read or listened, when it's not your usual (settings.format) */
+  format?: Format;
+  /** Where its books come from: Audible (series, numbering, new releases), Google Books (a single
+   * book Audible hasn't got), or you */
+  source?: "audible" | "google" | "manual";
   /** Finished being written (from Loot Table's data when added, or set by you) */
   complete?: boolean;
   notes?: string;
@@ -62,7 +77,8 @@ export interface Library {
   /** The book shown big in Now listening, when you picked one */
   pinned: string | null;
   news: NewsItem[];
-  settings: { autoQueue: boolean };
+  /** autoQueue: new books join Up next; format: whether you mostly listen or read */
+  settings: { autoQueue: boolean; format: Format };
   /** One-off changes already made to this library's data */
   migrated?: string[];
 }
@@ -71,7 +87,14 @@ export interface Library {
 export const UNDATED = "0000-00-00";
 export const hasDate = (d: string | null | undefined): d is string => !!d && d !== UNDATED;
 
-export const emptyLibrary = (): Library => ({ v: 1, series: {}, queue: [], pinned: null, news: [], settings: { autoQueue: true } });
+export const emptyLibrary = (): Library => ({ v: 1, series: {}, queue: [], pinned: null, news: [], settings: { autoQueue: true, format: "listen" } });
+
+/** Read or listened: the book's own setting, else its series', else your usual */
+export const formatOf = (lib: Pick<Library, "settings">, s: Pick<LibSeries, "format">, b?: Pick<LibBook, "format">): Format =>
+  b?.format ?? s.format ?? lib.settings.format;
+
+/** "Listening" or "Reading", for a book in progress */
+export const inProgressLabel = (f: Format) => (f === "read" ? "Reading" : "Listening");
 
 export type Status = "listening" | "next" | "wish" | "partway" | "caught" | "finished" | "unstarted";
 
@@ -122,14 +145,30 @@ export function nextBook(s: LibSeries): LibBook | null {
   return counted(s).find((b) => !b.finished) ?? null;
 }
 
-export function remaining(s: LibSeries): { books: number; minutes: number } {
+/** What's left: books, their minutes, and their pages (where known) */
+export function remaining(s: LibSeries): { books: number; minutes: number; pages: number } {
   const left = counted(s).filter((b) => !b.finished);
-  return { books: left.length, minutes: left.reduce((m, b) => m + (b.minutes ?? 0), 0) };
+  return {
+    books: left.length,
+    minutes: left.reduce((m, b) => m + (b.minutes ?? 0), 0),
+    pages: left.reduce((p, b) => p + (b.pages ?? 0), 0),
+  };
 }
 
-export function listened(s: LibSeries): number {
-  return counted(s).reduce((m, b) => m + (b.finished ? b.minutes ?? 0 : 0), 0);
+/** What you've done: minutes of the books you listened to, pages of the ones you read */
+export function done(s: LibSeries, lib: Pick<Library, "settings">): { minutes: number; pages: number } {
+  let minutes = 0;
+  let pages = 0;
+  for (const b of counted(s)) {
+    if (!b.finished) continue;
+    if (formatOf(lib, s, b) === "read") pages += b.pages ?? 0;
+    else minutes += b.minutes ?? 0;
+  }
+  return { minutes, pages };
 }
+
+/** 1240 → "1,240 pages" */
+export const fmtPages = (p: number | null | undefined) => (p == null ? "–" : `${Math.round(p).toLocaleString("en-GB")} page${Math.round(p) === 1 ? "" : "s"}`);
 
 export function lastFinished(s: LibSeries): string | null {
   return s.books.reduce<string | null>((d, b) => (hasDate(b.finished) && (!d || b.finished > d) ? b.finished : d), null);
@@ -222,15 +261,18 @@ export function parseDate(text: string): string | null {
   return null;
 }
 
-// ---- Stats: each book's minutes spread over the days you listened to it ----
+// ---- Stats: each book's minutes (or pages) spread over the days you spent on it ----
 
-/** A book's minutes by month ("2026-10"): spread evenly over the days from start to finish (both
- * counted), or all in the finish month when there's no start date */
-export function splitByMonth(b: Pick<LibBook, "started" | "finished" | "minutes">): Map<string, { minutes: number; days: number }> {
-  const out = new Map<string, { minutes: number; days: number }>();
-  if (!hasDate(b.finished) || !b.minutes) return out;
+/** An amount by month ("2026-10"): a book's minutes (or pages) spread evenly over the days from
+ * start to finish (both counted), or all in the finish month when there's no start date */
+export function splitByMonth(
+  b: Pick<LibBook, "started" | "finished" | "minutes">,
+  amount: number | null | undefined = b.minutes,
+): Map<string, { amount: number; days: number }> {
+  const out = new Map<string, { amount: number; days: number }>();
+  if (!hasDate(b.finished) || !amount) return out;
   if (!hasDate(b.started) || b.started > b.finished) {
-    out.set(b.finished.slice(0, 7), { minutes: b.minutes, days: 0 });
+    out.set(b.finished.slice(0, 7), { amount, days: 0 });
     return out;
   }
   const total = daysBetween(b.started, b.finished) + 1;
@@ -239,7 +281,7 @@ export function splitByMonth(b: Pick<LibBook, "started" | "finished" | "minutes"
   while (left > 0) {
     const inMonth = new Date(Date.UTC(y, m, 0)).getUTCDate() - d + 1;
     const days = Math.min(inMonth, left);
-    out.set(`${y}-${String(m).padStart(2, "0")}`, { minutes: (b.minutes * days) / total, days });
+    out.set(`${y}-${String(m).padStart(2, "0")}`, { amount: (amount * days) / total, days });
     left -= days;
     d = 1;
     m += 1;
@@ -251,18 +293,28 @@ export function splitByMonth(b: Pick<LibBook, "started" | "finished" | "minutes"
   return out;
 }
 
+export interface MonthStats {
+  /** Minutes listened, pages read, and books finished (of each kind) */
+  minutes: number;
+  pages: number;
+  books: number;
+  listened: number;
+  read: number;
+}
+
 export interface YearStats {
   year: number;
-  /** Minutes and books finished in each month, Jan to Dec */
-  months: { minutes: number; books: number }[];
+  months: MonthStats[];
   minutes: number;
+  pages: number;
   books: number;
+  listenedBooks: number;
+  readBooks: number;
   series: number;
-  /** Minutes a day, over the days of the year you were tracking (to today, for this year) */
-  perDay: number;
-  peak: { month: number; minutes: number } | null;
-  top: { key: string; title: string; minutes: number }[];
-  finished: { key: string; series: string; book: LibBook }[];
+  /** Over the days of the year you were tracking (to today, for this year) */
+  perDay: { minutes: number; pages: number };
+  top: { key: string; title: string; minutes: number; pages: number; books: number }[];
+  finished: { key: string; series: string; book: LibBook; format: Format }[];
   /** This year, up to which month (0–11); 11 for past years */
   upTo: number;
 }
@@ -278,8 +330,8 @@ export function yearsWithData(lib: Library): number[] {
 }
 
 export function yearStats(lib: Library, year: number, now = today()): YearStats {
-  const months = Array.from({ length: 12 }, () => ({ minutes: 0, books: 0 }));
-  const bySeries = new Map<string, number>();
+  const months: MonthStats[] = Array.from({ length: 12 }, () => ({ minutes: 0, pages: 0, books: 0, listened: 0, read: 0 }));
+  const bySeries = new Map<string, { minutes: number; pages: number; books: number }>();
   const finished: YearStats["finished"] = [];
   const seriesDone = new Set<string>();
   let first: string | null = null;
@@ -287,38 +339,45 @@ export function yearStats(lib: Library, year: number, now = today()): YearStats 
     for (const b of s.books) {
       if (b.skip || (b.extra && b.include === false)) continue;
       if (!hasDate(b.finished)) continue;
+      const format = formatOf(lib, s, b);
+      const field = format === "read" ? "pages" : "minutes";
       const start = hasDate(b.started) && b.started <= b.finished ? b.started : b.finished;
       if (!first || start < first) first = start;
-      for (const [month, part] of splitByMonth(b)) {
+      const mine = bySeries.get(s.key) ?? { minutes: 0, pages: 0, books: 0 };
+      for (const [month, part] of splitByMonth(b, format === "read" ? b.pages : b.minutes)) {
         if (Number(month.slice(0, 4)) !== year) continue;
-        months[Number(month.slice(5)) - 1].minutes += part.minutes;
-        bySeries.set(s.key, (bySeries.get(s.key) ?? 0) + part.minutes);
+        months[Number(month.slice(5)) - 1][field] += part.amount;
+        mine[field] += part.amount;
       }
       if (Number(b.finished.slice(0, 4)) === year) {
-        months[Number(b.finished.slice(5, 7)) - 1].books += 1;
-        finished.push({ key: s.key, series: s.title, book: b });
+        const m = months[Number(b.finished.slice(5, 7)) - 1];
+        m.books += 1;
+        m[format === "read" ? "read" : "listened"] += 1;
+        mine.books += 1;
+        finished.push({ key: s.key, series: s.title, book: b, format });
         seriesDone.add(s.key);
       }
+      if (mine.minutes || mine.pages || mine.books) bySeries.set(s.key, mine);
     }
   }
-  const minutes = months.reduce((m, x) => m + x.minutes, 0);
+  const sum = (f: keyof MonthStats) => months.reduce((t, x) => t + x[f], 0);
   const thisYear = Number(now.slice(0, 4));
   const from = first && Number(first.slice(0, 4)) === year ? first : `${year}-01-01`;
   const to = year === thisYear ? now : `${year}-12-31`;
   const days = year > thisYear || from > to ? 0 : daysBetween(from, to) + 1;
-  const peakIdx = months.reduce((best, x, i) => (x.minutes > months[best].minutes ? i : best), 0);
+  const minutes = sum("minutes");
+  const pages = sum("pages");
   return {
     year,
     months,
     minutes,
+    pages,
     books: finished.length,
+    listenedBooks: sum("listened"),
+    readBooks: sum("read"),
     series: seriesDone.size,
-    perDay: days ? minutes / days : 0,
-    peak: months[peakIdx].minutes ? { month: peakIdx, minutes: months[peakIdx].minutes } : null,
-    top: [...bySeries.entries()]
-      .map(([key, m]) => ({ key, title: lib.series[key]?.title ?? key, minutes: m }))
-      .sort((a, b) => b.minutes - a.minutes)
-      .slice(0, 6),
+    perDay: { minutes: days ? minutes / days : 0, pages: days ? pages / days : 0 },
+    top: [...bySeries.entries()].map(([key, v]) => ({ key, title: lib.series[key]?.title ?? key, ...v })),
     finished: finished.sort((a, b) => String(b.book.finished).localeCompare(String(a.book.finished))),
     upTo: year === thisYear ? Number(now.slice(5, 7)) - 1 : 11,
   };
@@ -365,6 +424,9 @@ export function mergeAudible(info: AudibleSeries, have?: LibSeries): { series: L
       released: a.released,
       ...(a.extra ? { extra: true, ...(prev?.include === false ? { include: false } : {}) } : {}),
       ...(prev?.skip ? { skip: true } : {}),
+      ...(prev?.pages != null ? { pages: prev.pages } : {}),
+      ...(prev?.pagesEdited ? { pagesEdited: true } : {}),
+      ...(prev?.format ? { format: prev.format } : {}),
       started: prev?.started ?? null,
       finished: prev?.finished ?? null,
     };
@@ -384,6 +446,8 @@ export function mergeAudible(info: AudibleSeries, have?: LibSeries): { series: L
       image: info.image ?? have?.image ?? null,
       books: sortBooks(books),
       wish: have?.wish,
+      ...(have?.format ? { format: have.format } : {}),
+      source: "audible",
       complete: have?.complete ?? info.kind === "book",
       notes: have?.notes,
       added: have?.added ?? today(),
@@ -419,4 +483,33 @@ export function releaseCheck(s: LibSeries, now = today()): { news: LibBook | nul
   const fresh = out.filter((b) => !s.seen!.includes(slot(b)) && !b.started && !b.finished);
   const caughtUp = before.length > 0 && before.every((b) => b.finished);
   return { news: fresh.length && caughtUp ? fresh[0] : null, seen };
+}
+
+// ---- Books from Google Books ----
+
+/** What the server returns for a Google Books volume (googlebooks.mjs) */
+export interface GoogleBook {
+  id: string;
+  title: string;
+  authors: string[];
+  pages: number | null;
+  released: string | null;
+  image: string | null;
+  isbn: string | null;
+}
+
+/** A book Audible hasn't got, as a series of one */
+export function fromGoogle(v: GoogleBook): LibSeries {
+  return {
+    key: `gbook:${v.id}`,
+    asin: null,
+    kind: "book",
+    source: "google",
+    title: v.title,
+    authors: v.authors,
+    image: v.image,
+    complete: true,
+    added: today(),
+    books: [{ id: `g-${v.id}`, gid: v.id, asin: null, n: "1", title: v.title, minutes: null, pages: v.pages, released: v.released }],
+  };
 }

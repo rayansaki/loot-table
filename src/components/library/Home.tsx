@@ -11,9 +11,12 @@ import {
   fmtDays,
   fmtMinutes,
   fullLabel,
+  done as doneOf,
+  fmtPages,
+  formatOf,
+  inProgressLabel,
   isListening,
   lastFinished,
-  listened,
   nextBook,
   nowListening,
   remaining,
@@ -33,6 +36,7 @@ import {
   queueMove,
   queueRemove,
   setDates,
+  setDefaultFormat,
   startBook,
   startNext,
 } from "../../library/store";
@@ -70,10 +74,17 @@ export default function Home({
         <div>
           <h1>Library</h1>
           <p className="muted" style={{ margin: "4px 0 0" }}>
-            What you're listening to, what's next, and everything you've finished.
+            What you're {lib.settings.format === "read" ? "reading" : "listening to"}, what's next, and everything you've finished.
           </p>
         </div>
         <div className="lib-actions">
+          <div className="lib-seg" role="group" aria-label="You mostly">
+            {(["listen", "read"] as const).map((f) => (
+              <button key={f} type="button" className={lib.settings.format === f ? "on" : ""} aria-pressed={lib.settings.format === f} onClick={() => setDefaultFormat(f)} title="Your usual: new books start this way">
+                {f === "listen" ? "I mostly listen" : "I mostly read"}
+              </button>
+            ))}
+          </div>
           <button type="button" className="lib-btn" onClick={onImport}>
             Import
           </button>
@@ -208,19 +219,18 @@ function NowListening({ lib, setNote }: { lib: Library; setNote: (n: FinishedNot
   const { series: s, book: b } = main;
   const books = counted(s);
   const done = books.filter((x) => x.finished).length;
+  const reading = formatOf(lib, s, b) === "read";
   return (
-    <section className="lib-card lib-now" aria-label="Now listening">
+    <section className="lib-card lib-now" aria-label="In progress">
       <Cover work={cover(s)} size={140} />
       <div className="lib-now-body">
-        <div className="lib-eyebrow on">Now listening</div>
+        <div className="lib-eyebrow on">Now {reading ? "reading" : "listening"}</div>
         <div>
           <a href={seriesHref(s.key)} className="lib-now-title" style={{ color: "inherit", textDecoration: "none" }}>
             {s.title}
           </a>
           <div className="muted">
-            {s.kind === "book" ? "" : `${bookLabel(b)} · `}
-            {fmtMinutes(b.minutes)}
-            {s.authors[0] ? ` · ${s.authors[0]}` : ""}
+            {[s.kind === "book" ? null : bookLabel(b), reading ? (b.pages ? fmtPages(b.pages) : null) : fmtMinutes(b.minutes), s.authors[0]].filter(Boolean).join(" · ")}
           </div>
         </div>
         {books.length > 1 && (
@@ -250,7 +260,8 @@ function NowListening({ lib, setNote }: { lib: Library; setNote: (n: FinishedNot
       </div>
       {others.length > 0 && (
         <div className="lib-also">
-          <div className="lib-eyebrow">Also listening</div>
+          <div className="lib-eyebrow">Also on the go · {others.length}</div>
+          <div className={others.length > 2 ? "lib-also-grid" : ""}>
           {others.map(({ series: o, book: ob }) => (
             <div className="lib-row" key={o.key + ob.id} style={{ margin: "0 -6px" }}>
               <Cover work={cover(o)} size={40} />
@@ -259,18 +270,25 @@ function NowListening({ lib, setNote }: { lib: Library; setNote: (n: FinishedNot
                   <a href={seriesHref(o.key)}>{o.title}</a>
                 </div>
                 <div className="lib-row-meta">
-                  {o.kind === "book" ? "" : `${bookLabel(ob)} · `}
-                  {fmtMinutes(ob.minutes)} · started {fmtDate(ob.started, false)}
+                  {[
+                    o.kind === "book" ? null : bookLabel(ob),
+                    formatOf(lib, o, ob) === "read" ? (ob.pages ? fmtPages(ob.pages) : null) : fmtMinutes(ob.minutes),
+                    `${formatOf(lib, o, ob) === "read" ? "reading" : "listening"} since ${fmtDate(ob.started, false)}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </div>
               </div>
-              <button type="button" className="lib-sm" onClick={() => finish(o.key, ob.id, fullLabel(o, ob))}>
-                Mark finished
+              <button type="button" className="lib-sm" aria-label={`Mark ${fullLabel(o, ob)} finished`} onClick={() => finish(o.key, ob.id, fullLabel(o, ob))}>
+                <span className="lib-long">Mark finished</span>
+                <span className="lib-short" aria-hidden="true">✓</span>
               </button>
               <button type="button" className="lib-sm" aria-label={`Show ${o.title} in the main card`} title="Show this one big" onClick={() => pin(o.key)}>
                 ⇅
               </button>
             </div>
           ))}
+          </div>
         </div>
       )}
     </section>
@@ -282,8 +300,13 @@ const MONTHS = "JFMAMJJASOND";
 function YearCard({ lib }: { lib: Library }) {
   const year = new Date().getFullYear();
   const y = useMemo(() => yearStats(lib, year), [lib, year]);
-  const max = Math.max(1, ...y.months.map((m) => m.minutes));
+  // Your usual first; the other way too if there's any of it
+  const reading = lib.settings.format === "read" ? y.pages > 0 || y.minutes === 0 : y.minutes === 0 && y.pages > 0;
+  const field = reading ? "pages" : "minutes";
+  const max = Math.max(1, ...y.months.map((m) => m[field]));
   const thisMonth = y.months[y.upTo];
+  const show = (v: number) => (reading ? Math.round(v).toLocaleString("en-GB") : fmtMinutes(v, true));
+  const other = reading ? (y.minutes ? `${fmtMinutes(y.minutes, true)} listened too` : "") : y.pages ? `${fmtPages(y.pages)} read too` : "";
   return (
     <section className="lib-card" aria-label="This year">
       <div className="lib-card-head">
@@ -295,15 +318,16 @@ function YearCard({ lib }: { lib: Library }) {
         </a>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-        <span className="lib-big">{fmtMinutes(y.minutes, true)}</span>
-        <span className="muted">{fmtDays(y.minutes)} of listening</span>
+        <span className="lib-big">{show(y[field])}</span>
+        <span className="muted">{reading ? "pages read" : `${fmtDays(y.minutes)} of listening`}</span>
       </div>
+      {other && <div className="small muted" style={{ marginTop: 4 }}>{other}</div>}
       <div className="lib-spark" aria-hidden="true">
         {y.months.map((m, i) => (
           <div key={i}>
             <i
               className={i === y.upTo ? "now" : ""}
-              style={{ height: i > y.upTo ? 2 : Math.max(3, Math.round((m.minutes / max) * 44)), opacity: i > y.upTo ? 0.4 : 1 }}
+              style={{ height: i > y.upTo ? 2 : Math.max(3, Math.round((m[field] / max) * 44)), opacity: i > y.upTo ? 0.4 : 1 }}
             />
             {MONTHS[i]}
           </div>
@@ -315,28 +339,30 @@ function YearCard({ lib }: { lib: Library }) {
           <span>books finished</span>
         </div>
         <div className="lib-tile">
-          <b>{fmtMinutes(y.perDay)}</b>
-          <span>a day on average</span>
+          <b>{reading ? Math.round(y.perDay.pages) : fmtMinutes(y.perDay.minutes)}</b>
+          <span>{reading ? "pages a day" : "a day on average"}</span>
         </div>
         <div className="lib-tile">
-          <b>{fmtMinutes(thisMonth.minutes, true)}</b>
-          <span>this month</span>
+          <b>{show(thisMonth[field])}</b>
+          <span>{reading ? "pages this month" : "this month"}</span>
         </div>
       </div>
     </section>
   );
 }
 
-function queueMeta(s: LibSeries): string {
+function queueMeta(s: LibSeries, lib: Library): string {
   const left = remaining(s);
+  const reading = formatOf(lib, s) === "read";
+  const amount = reading ? (left.pages ? fmtPages(left.pages) : `${left.books} book${left.books === 1 ? "" : "s"}`) : fmtMinutes(left.minutes, true);
   const nb = nextBook(s);
   const started = counted(s).some((b) => b.finished);
-  if (s.kind === "book") return `${s.authors[0] ?? "Standalone"} · ${fmtMinutes(left.minutes, true)}`;
+  if (s.kind === "book") return `${s.authors[0] ?? "Standalone"}${reading && !left.pages ? "" : ` · ${amount}`}`;
   const soon = upcoming(s)[0];
   if (!nb && soon) return `${bookLabel(soon)} out ${fmtDate(soon.released)}`;
-  if (started && nb) return `${bookLabel(nb)} next · ${left.books} book${left.books === 1 ? "" : "s"} left · ${fmtMinutes(left.minutes, true)}`;
+  if (started && nb) return `${bookLabel(nb)} next · ${left.books} book${left.books === 1 ? "" : "s"} left${reading && !left.pages ? "" : ` · ${amount}`}`;
   const n = counted(s).length;
-  return `${s.authors[0] ? `${s.authors[0]} · ` : ""}${n} book${n === 1 ? "" : "s"} · ${fmtMinutes(left.minutes, true)}`;
+  return `${s.authors[0] ? `${s.authors[0]} · ` : ""}${n} book${n === 1 ? "" : "s"}${reading && !left.pages ? "" : ` · ${amount}`}`;
 }
 
 function UpNext({ lib }: { lib: Library }) {
@@ -345,7 +371,8 @@ function UpNext({ lib }: { lib: Library }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const queue = lib.queue.filter((k) => lib.series[k]);
-  const total = queue.reduce((m, k) => m + remaining(lib.series[k]).minutes, 0);
+  const reading = lib.settings.format === "read";
+  const total = queue.reduce((m, k) => m + remaining(lib.series[k])[reading ? "pages" : "minutes"], 0);
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return;
     queueMove(lib.queue.indexOf(String(e.active.id)), lib.queue.indexOf(String(e.over.id)));
@@ -356,7 +383,7 @@ function UpNext({ lib }: { lib: Library }) {
         <h2>
           Up next{" "}
           <span className="muted">
-            · {queue.length} series · {fmtMinutes(total, true)} to go
+            · {queue.length} series{total ? ` · ${reading ? fmtPages(total) : fmtMinutes(total, true)} to go` : ""}
           </span>
         </h2>
         {queue.length > 1 && <span className="small muted">Drag to reorder</span>}
@@ -365,7 +392,7 @@ function UpNext({ lib }: { lib: Library }) {
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={queue} strategy={verticalListSortingStrategy}>
           {queue.map((k, i) => (
-            <QueueRow key={k} s={lib.series[k]} n={i + 1} />
+            <QueueRow key={k} s={lib.series[k]} n={i + 1} lib={lib} />
           ))}
         </SortableContext>
       </DndContext>
@@ -373,7 +400,7 @@ function UpNext({ lib }: { lib: Library }) {
   );
 }
 
-function QueueRow({ s, n }: { s: LibSeries; n: number }) {
+function QueueRow({ s, n, lib }: { s: LibSeries; n: number; lib: Library }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: s.key });
   const nb = nextBook(s);
   const books = counted(s);
@@ -393,7 +420,7 @@ function QueueRow({ s, n }: { s: LibSeries; n: number }) {
         <div className="lib-row-title">
           <a href={seriesHref(s.key)}>{s.title}</a>
         </div>
-        <div className="lib-row-meta">{queueMeta(s)}</div>
+        <div className="lib-row-meta">{queueMeta(s, lib)}</div>
         {done > 0 && books.length > 1 && (
           <div className="lib-mini-bar">
             <span>
@@ -434,7 +461,7 @@ function Wishlist({ lib }: { lib: Library }) {
             <div className="lib-row-title">
               <a href={seriesHref(s.key)}>{s.title}</a>
             </div>
-            <div className="lib-row-meta">{queueMeta(s)}</div>
+            <div className="lib-row-meta">{queueMeta(s, lib)}</div>
           </div>
           <button type="button" className="lib-sm" onClick={() => queueAdd(s.key)}>
             Move to Up next
@@ -475,7 +502,7 @@ function SeriesTable({ lib }: { lib: Library }) {
         <div className="lib-pills">
           {FILTERS.filter((f) => f === "all" || count(f)).map((f) => (
             <button key={f} type="button" className={`lib-pill ${filter === f ? "on" : ""}`} onClick={() => setFilter(f)}>
-              {f === "all" ? "All" : STATUS_LABEL[f]}
+              {f === "all" ? "All" : f === "listening" ? "In progress" : STATUS_LABEL[f]}
               <span>{count(f)}</span>
             </button>
           ))}
@@ -488,7 +515,7 @@ function SeriesTable({ lib }: { lib: Library }) {
             <span>Series</span>
             <span>Status</span>
             <span>Progress</span>
-            <span>Listened</span>
+            <span>Done</span>
             <span>Last finished</span>
             <span>Tier</span>
           </div>
@@ -512,7 +539,9 @@ function SeriesTable({ lib }: { lib: Library }) {
                   </span>
                 </span>
                 <span>
-                  <span className={`lib-status lib-status-${status}`}>{STATUS_LABEL[status]}</span>
+                  <span className={`lib-status lib-status-${status}`}>
+                    {status === "listening" && listening ? inProgressLabel(formatOf(lib, s, listening)) : STATUS_LABEL[status]}
+                  </span>
                   {news.has(s.key) && <span className="lib-new-line">● New book out</span>}
                   {!news.has(s.key) && (status === "caught" || status === "partway") && !nextBook(s) && upcoming(s)[0] && (
                     <span className="lib-new-line" style={{ color: "var(--muted)" }}>
@@ -533,7 +562,13 @@ function SeriesTable({ lib }: { lib: Library }) {
                     />
                   </span>
                 </span>
-                <span className="lib-num">{fmtMinutes(listened(s))}</span>
+                <span className="lib-num">
+                  {(() => {
+                    const d = doneOf(s, lib);
+                    const parts = [d.minutes ? fmtMinutes(d.minutes) : "", d.pages ? `${d.pages.toLocaleString("en-GB")} p` : ""].filter(Boolean);
+                    return parts.join(" · ") || (formatOf(lib, s) === "read" ? "–" : "0h");
+                  })()}
+                </span>
                 <span className="muted small">{listening ? `Started ${fmtDate(listening.started, false)}` : fmtDate(last) || "–"}</span>
                 <span className="lib-tier" style={t ? { background: TIER_COLOUR[t] } : { color: "var(--muted)" }}>
                   {t ?? "–"}
