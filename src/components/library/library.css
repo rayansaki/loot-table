@@ -127,6 +127,7 @@
 }
 .lib-also {
   flex: 1 1 100%;
+  min-width: 0;
   border-top: 1px solid var(--line);
   padding-top: 12px;
   display: flex;
@@ -615,15 +616,15 @@ a.lib-tr:hover {
 }
 /* Scrolls sideways only when the card is really narrower than this (a tablet, or a phone) */
 .lib-books {
-  min-width: 860px;
+  min-width: 880px;
 }
 .lib-book > span {
   white-space: nowrap;
 }
 .lib-book {
   display: grid;
-  grid-template-columns: 28px 34px minmax(140px, 1fr) 64px 132px 124px 124px 40px 106px;
-  gap: 10px;
+  grid-template-columns: 26px 30px minmax(100px, 1fr) 66px 56px 120px 118px 118px 36px 100px;
+  gap: 8px;
   align-items: center;
   padding: 7px 20px;
   border-top: 1px solid #23262e;
@@ -930,5 +931,48 @@ a.lib-tr:hover {
     white-space: nowrap;
     padding-left: 8px;
     padding-right: 8px;
+  }
+}
+
+/* Several books on the go: two columns of rows */
+.lib-also-grid > *,
+.lib-also > .lib-row {
+  min-width: 0;
+}
+.lib-also-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 2px 18px;
+}
+
+/* Read or listened, per book: quiet when it follows the series, amber when it's its own */
+.lib button.lib-fmt {
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  min-height: 28px;
+}
+.lib button.lib-fmt:hover {
+  border-color: #4a505e;
+  color: var(--text);
+}
+.lib button.lib-fmt.own {
+  color: var(--accent);
+  border-color: #5a4620;
+}
+
+/* A button's short form on a phone */
+.lib-short {
+  display: none;
+}
+@media (max-width: 640px) {
+  .lib-long {
+    display: none;
+  }
+  .lib-short {
+    display: inline;
   }
 }

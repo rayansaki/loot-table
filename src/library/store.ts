@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import {
   UNDATED,
   emptyLibrary,
+  formatOf,
+  fromGoogle,
   keyFor,
   mainBooks,
   mergeAudible,
@@ -14,6 +16,8 @@ import {
   sortBooks,
   today,
   type AudibleSeries,
+  type Format,
+  type GoogleBook,
   type LibBook,
   type LibSeries,
   type Library,
@@ -137,6 +141,9 @@ export interface SeriesMatch {
 export const searchAudible = async (q: string) =>
   (await getJson<{ matches: SeriesMatch[] }>(`api/audible/search?q=${encodeURIComponent(q)}`)).matches;
 
+export const searchGoogle = async (q: string) =>
+  (await getJson<{ matches: GoogleBook[] }>(`api/books/search?q=${encodeURIComponent(q)}`)).matches;
+
 /** The ASIN to look up for a tier list key: Loot Table's series keys are Audible series ASINs */
 export function asinFromKey(key: string): string | null {
   const m = key.match(/^(?:series|book):([A-Z0-9]{10})$/i);
@@ -180,6 +187,21 @@ export function addFromAudible(info: AudibleSeries, opts: AddOptions): string {
     if (opts.place === "next" && opts.startIndex === undefined) l.queue.push(key);
   });
   return key;
+}
+
+/** A book from Google Books (one Audible hasn't got) */
+export function addFromGoogle(v: GoogleBook, place: Place, start = false): string {
+  const series = fromGoogle(v);
+  change((l) => {
+    const have = l.series[series.key];
+    if (have) return;
+    series.wish = place === "wish";
+    series.seen = releaseCheck(series).seen;
+    if (start) series.books[0].started = today();
+    l.series[series.key] = series;
+    if (place === "next" && !start) l.queue.push(series.key);
+  });
+  return series.key;
 }
 
 /** A series without Audible: just a name, and books you add by hand */
@@ -251,6 +273,81 @@ export function setSkip(key: string, bookId: string, skip: boolean): void {
     if (skip) b.skip = true;
     else delete b.skip;
   });
+}
+
+export function setPages(key: string, bookId: string, pages: number | null): void {
+  changeBook(key, bookId, (b) => {
+    b.pages = pages;
+    b.pagesEdited = true;
+  });
+}
+
+/** Whether you mostly listen or read: the default for every book */
+export function setDefaultFormat(format: Format): void {
+  change((l) => {
+    l.settings.format = format;
+  });
+}
+
+/** Read or listened for a whole series (null: your usual) */
+export function setSeriesFormat(key: string, format: Format | null): void {
+  changeSeries(key, (s) => {
+    if (format) s.format = format;
+    else delete s.format;
+    // A book set the same way as its series needs no setting of its own
+    for (const b of s.books) if (b.format && b.format === (format ?? undefined)) delete b.format;
+  });
+}
+
+/** Read or listened for one book (null: the series' way) */
+export function setBookFormat(key: string, bookId: string, format: Format | null): void {
+  changeBook(key, bookId, (b) => {
+    if (format) b.format = format;
+    else delete b.format;
+  });
+}
+
+// ---- Page counts from Google Books ----
+
+let pagesOff = false; // no key on the server, or no server: stop asking this visit
+const asking = new Set<string>();
+
+/** Page counts for the books you read (or will) that haven't got one: from Google Books, by title
+ * and author. A count you typed is never replaced. At most `limit` lookups. */
+export async function fillPages(key: string, limit = 40): Promise<number> {
+  if (pagesOff) return 0;
+  const l = getLibrary();
+  const s = l.series[key];
+  if (!s) return 0;
+  const want = s.books.filter((b) => !b.skip && b.pages == null && !b.pagesEdited && formatOf(l, s, b) === "read" && !asking.has(`${key}|${b.id}`));
+  let got = 0;
+  for (const b of want.slice(0, limit)) {
+    asking.add(`${key}|${b.id}`);
+    try {
+      const { pages } = await getJson<{ pages: number | null }>(
+        `api/books/pages?title=${encodeURIComponent(b.title)}&author=${encodeURIComponent(s.authors[0] ?? "")}`,
+      );
+      changeBook(key, b.id, (x) => {
+        if (x.pages == null && !x.pagesEdited) x.pages = pages ?? 0; // 0: looked, none found
+      });
+      got++;
+    } catch {
+      pagesOff = true;
+      break;
+    } finally {
+      asking.delete(`${key}|${b.id}`);
+    }
+  }
+  return got;
+}
+
+/** Page counts for every series you read, a few at a time, when the Library opens */
+export async function fillAllPages(limit = 60): Promise<void> {
+  let left = limit;
+  for (const s of Object.values(getLibrary().series)) {
+    if (left <= 0 || pagesOff) return;
+    left -= await fillPages(s.key, left);
+  }
 }
 
 export function setInclude(key: string, bookId: string, include: boolean): void {
@@ -393,6 +490,7 @@ export async function refreshStale(maxAgeHours = 24): Promise<void> {
   } finally {
     refreshing = false;
   }
+  await fillAllPages().catch(() => {});
 }
 
 /** Put a whole series in (import), in the place given; Up next keeps the order they arrive in */

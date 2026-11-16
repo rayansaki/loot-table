@@ -51,8 +51,15 @@ it's NEW (and joins Up next) if you're caught up.
 Hours in the stats are spread evenly over the days between a book's start and finish dates; a book
 with no start date counts in the month you finished it.
 
+**Reading too:** each account says whether it mostly listens or reads ("I mostly listen / read" on
+the Library page), and any series or single book can be switched. Books you read count pages
+instead of hours, and the stats can show hours, pages or books. With a Google Books API key in
+`GOOGLE_BOOKS_KEY` (free, 1,000 lookups a day), "Add a series" also finds books Audible hasn't got,
+and books you read get their page counts filled in.
+
 **Import** takes a CSV: one row per book with `series`, and any of `series_asin`, `book` (its
-number), `title`, `length`, `started`, `finished`, and `list` (`next` or `wish`) for series rows.
+number), `title`, `length`, `pages`, `format` (`read` or `listen`), `started`, `finished`, and `list`
+(`next` or `wish`) for series rows.
 
 ## Keeping up with the original
 

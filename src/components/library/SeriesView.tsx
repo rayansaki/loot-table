@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useBoard } from "../../board";
 import {
   STATUS_LABEL,
@@ -12,7 +12,10 @@ import {
   isListening,
   isOut,
   releaseDate,
-  listened,
+  done as doneOf,
+  fmtPages,
+  formatOf,
+  inProgressLabel,
   mainBooks,
   nextBook,
   upcoming,
@@ -35,7 +38,11 @@ import {
   removeSeries,
   setDates,
   setInclude,
+  fillPages,
+  setBookFormat,
   setLength,
+  setPages,
+  setSeriesFormat,
   setSkip,
   startBook,
   toWishlist,
@@ -55,6 +62,10 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [adding, setAdding] = useState(false);
 
+  useEffect(() => {
+    if (s) void fillPages(s.key);
+  }, [s?.key, s?.format, lib.settings.format]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!s) {
     return (
       <div className="lib">
@@ -70,6 +81,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
   }
 
   const status = statusOf(s, lib);
+  const seriesFmt = formatOf(lib, s);
   const books = counted(s);
   const done = books.filter((b) => b.finished).length;
   const listening = books.find(isListening);
@@ -118,7 +130,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
         <Cover work={{ image: s.image, title: s.title }} size={160} />
         <div style={{ flex: "1 1 420px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div className="lib-chips">
-            <span className={`lib-status lib-status-${status}`}>{STATUS_LABEL[status]}</span>
+            <span className={`lib-status lib-status-${status}`}>{status === "listening" && listening ? inProgressLabel(formatOf(lib, s, listening)) : STATUS_LABEL[status]}</span>
             {isNew && nb && <span className="lib-status lib-status-finished">{bookLabel(nb)} out</span>}
             {!nb && soon && (
               <span className="lib-status lib-status-unstarted">
@@ -130,6 +142,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
           <h1>{s.title}</h1>
           <div className="muted">
             {s.authors.join(", ") || "No author"}
+            {s.source === "google" && " · from Google Books"}
             {s.kind === "series" &&
               ` · ${mainBooks(s).length} book${mainBooks(s).length === 1 ? "" : "s"} on Audible${extras ? ` + ${extras} extra${extras === 1 ? "" : "s"}` : ""}${
                 upcoming(s).length ? ` · ${upcoming(s).length} not out yet` : ""
@@ -186,6 +199,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                 <span>#</span>
                 <span>Book</span>
                 <span>Length</span>
+                <span>Format</span>
                 <span>Released</span>
                 <span>Started</span>
                 <span>Finished</span>
@@ -196,7 +210,9 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                 const off = !!b.skip || (b.extra && b.include === false);
                 const days = hasDate(b.started) && hasDate(b.finished) && b.started <= b.finished ? daysBetween(b.started, b.finished) + 1 : null;
                 const open = editing === b.id || bad?.id === b.id;
-                const split = open && !off ? splitByMonth(b) : null;
+                const fmt = formatOf(lib, s, b);
+                const amount = fmt === "read" ? b.pages : b.minutes;
+                const split = open && !off ? splitByMonth(b, amount) : null;
                 const fresh = isNew && !b.finished && !b.started && b.id === nb?.id;
                 const coming = !isOut(b);
                 return (
@@ -216,7 +232,23 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                       ) : null}
                       {fresh && <span className="lib-new-line" style={{ display: "inline", marginLeft: 8 }}>New</span>}
                     </span>
-                    <LengthInput value={b.minutes} onChange={(m) => setLength(s.key, b.id, m)} label={`Length of ${b.title}`} />
+                    {fmt === "read" ? (
+                      <PagesInput value={b.pages ?? null} onChange={(p) => setPages(s.key, b.id, p)} label={`Pages in ${b.title}`} />
+                    ) : (
+                      <LengthInput value={b.minutes} onChange={(m) => setLength(s.key, b.id, m)} label={`Length of ${b.title}`} />
+                    )}
+                    <button
+                      type="button"
+                      className={`lib-fmt ${b.format ? "own" : ""}`}
+                      title={`${fmt === "read" ? "Read" : "Listened to"}: click to switch`}
+                      aria-label={`${b.title}: ${fmt === "read" ? "read" : "listened"}. Switch`}
+                      onClick={() => {
+                        const flip = fmt === "read" ? "listen" : "read";
+                        setBookFormat(s.key, b.id, flip === formatOf(lib, s) ? null : flip);
+                      }}
+                    >
+                      {fmt === "read" ? "Read" : "Listen"}
+                    </button>
                     <span className={`small ${coming ? "lib-warn" : "muted"}`} title={coming ? "Not out yet: it doesn't count until it is" : undefined}>
                       {releaseDate(b) ? `${coming ? "Coming " : ""}${fmtDate(releaseDate(b))}` : ""}
                     </span>
@@ -254,11 +286,11 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                                   {MONTH[Number(month.slice(5)) - 1]} {month.slice(0, 4)}
                                 </span>
                                 <span className="lib-bar">
-                                  <i style={{ width: `${Math.round((part.minutes / (b.minutes || 1)) * 100)}%` }} />
+                                  <i style={{ width: `${Math.round((part.amount / (amount || 1)) * 100)}%` }} />
                                 </span>
                                 <span>
                                   {part.days ? `${part.days} day${part.days === 1 ? "" : "s"} · ` : ""}
-                                  <b style={{ color: "var(--text)" }}>{fmtMinutes(part.minutes)}</b>
+                                  <b style={{ color: "var(--text)" }}>{fmt === "read" ? fmtPages(part.amount) : fmtMinutes(part.amount)}</b>
                                 </span>
                               </div>
                             ))}
@@ -280,8 +312,11 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
         <aside>
           <section className="lib-card lib-facts" aria-label="Summary">
             <div>
-              <b>{fmtMinutes(listened(s))}</b>
-              <span className="small muted">listened</span>
+              <b>
+                {[doneOf(s, lib).minutes ? fmtMinutes(doneOf(s, lib).minutes) : "", doneOf(s, lib).pages ? fmtPages(doneOf(s, lib).pages) : ""].filter(Boolean).join(" · ") ||
+                  (seriesFmt === "read" ? "0 pages" : "0h")}
+              </b>
+              <span className="small muted">{seriesFmt === "read" ? "read" : "listened"}</span>
             </div>
             <div>
               <b>
@@ -324,6 +359,22 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
           </section>
 
           <section className="lib-card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span className="small muted">How you're taking this one</span>
+              <div className="lib-seg" role="group" aria-label="Read or listened" style={{ alignSelf: "flex-start" }}>
+                {(["listen", "read"] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className={seriesFmt === f ? "on" : ""}
+                    aria-pressed={seriesFmt === f}
+                    onClick={() => setSeriesFormat(s.key, f === lib.settings.format ? null : f)}
+                  >
+                    {f === "listen" ? "Listening" : "Reading"}
+                  </button>
+                ))}
+              </div>
+            </div>
             {s.kind === "series" && (
               <label className="lib-toggle">
                 <input type="checkbox" checked={!!s.complete} onChange={(e) => updateSeries(s.key, { complete: e.target.checked })} />
@@ -440,6 +491,29 @@ function LengthInput({ value, onChange, label }: { value: number | null; onChang
         if (text === null) return;
         const m = parseLength(text);
         if (text.trim() === "" || m !== null) onChange(m);
+        setText(null);
+      }}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+    />
+  );
+}
+
+function PagesInput({ value, onChange, label }: { value: number | null; onChange: (p: number | null) => void; label: string }) {
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? (value ? `${value} p` : "");
+  return (
+    <input
+      className="lib-len"
+      value={shown}
+      placeholder="pages"
+      aria-label={label}
+      inputMode="numeric"
+      onFocus={() => setText(value ? String(value) : "")}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        if (text === null) return;
+        const n = parseInt(text.replace(/[^\d]/g, ""), 10);
+        if (text.trim() === "" || n > 0) onChange(n > 0 ? n : null);
         setText(null);
       }}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}

@@ -75,7 +75,7 @@ export default function ImportDialog({ onClose }: { onClose: () => void }) {
           <>
             <p className="small muted" style={{ margin: 0 }}>
               A CSV with one row per book you've listened to, and a row per series for Up next or your wishlist. Columns: <code>series</code>, then any of{" "}
-              <code>series_asin</code>, <code>book</code> (its number), <code>title</code>, <code>length</code>, <code>started</code>, <code>finished</code> and <code>list</code> (
+              <code>series_asin</code>, <code>book</code> (its number), <code>title</code>, <code>length</code>, <code>pages</code>, <code>format</code> (<code>read</code> or <code>listen</code>), <code>started</code>, <code>finished</code> and <code>list</code> (
               <code>next</code> or <code>wish</code>). Dates as 2026-11-10 or 10/11/2026. Each series is looked up on Audible for its full book list.
             </p>
             <label>

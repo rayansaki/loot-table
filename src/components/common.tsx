@@ -1,11 +1,22 @@
+import { useState } from "react";
 import { TIERS, type Bucket, type SeriesStatus, type StoryTags, type Work } from "../api";
 import { useBoard } from "../board";
 
 export function Cover({ work, size = 72 }: { work: Pick<Work, "image" | "title" | "custom">; size?: number }) {
+  const [broken, setBroken] = useState<string | null>(null); // an image that didn't load: initials instead
   let cover;
-  if (work.image) {
+  if (work.image && broken !== work.image) {
     cover = (
-      <img className="cover" src={work.image} alt={work.title} width={size} height={size} loading="lazy" draggable={false} />
+      <img
+        className="cover"
+        src={work.image}
+        alt={work.title}
+        width={size}
+        height={size}
+        loading="lazy"
+        draggable={false}
+        onError={() => setBroken(work.image)}
+      />
     );
   } else {
     const initials = work.title

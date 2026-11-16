@@ -12,11 +12,14 @@
 //   DATA_DIR       where the lists are saved: a persistent volume (default /data)
 //   PORT           set by the host (default 8080)
 //   AUDIBLE_API    where cover searches go (default https://api.audible.co.uk, Audible UK)
+//   GOOGLE_BOOKS_KEY  a Google Books API key: ebooks and page counts in the Library (optional)
+//   GOOGLE_BOOKS_API  where those go (default https://www.googleapis.com)
 
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { searchSeries, seriesInfo } from "./audible.mjs";
+import { pageCount, searchBooks } from "./googlebooks.mjs";
 
 const PORT = Number(process.env.PORT) || 8080;
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -24,6 +27,8 @@ const DIST = join(import.meta.dirname, "dist");
 const COOKIE = "lt_sync";
 const MAX_BODY = 2 * 1024 * 1024;
 const AUDIBLE_API = (process.env.AUDIBLE_API || "https://api.audible.co.uk").replace(/\/$/, "");
+const GOOGLE_BOOKS_KEY = (process.env.GOOGLE_BOOKS_KEY || "").trim();
+const GOOGLE_BOOKS_API = (process.env.GOOGLE_BOOKS_API || "https://www.googleapis.com").replace(/\/$/, "");
 /** The accounts: letters, digits, - and _ */
 const ACCOUNTS = ["Rodrigo", "Nicola"];
 /** Accounts that were renamed: old name -> new, so a saved list follows the new name */
@@ -253,6 +258,42 @@ async function audible(req, res, path, params) {
   }
 }
 
+/** Page counts and searches looked up recently: Google Books allows 1,000 requests a day */
+const booksCache = new Map();
+
+/** The Library's Google Books lookups: /api/books/search?q= and /api/books/pages?title=&author= */
+async function books(req, res, path, params) {
+  if (!signedInAs(req)) return json(res, 401, { error: "not signed in" });
+  if (!GOOGLE_BOOKS_KEY) return json(res, 503, { error: "Google Books isn't set up (GOOGLE_BOOKS_KEY)" });
+  const cached = (k, f) => {
+    const hit = booksCache.get(k);
+    if (hit && hit.at > Date.now() - 7 * 86400_000) return hit.value;
+    return f().then((value) => {
+      if (booksCache.size > 2000) booksCache.clear();
+      booksCache.set(k, { at: Date.now(), value });
+      return value;
+    });
+  };
+  try {
+    if (path === "/api/books/search") {
+      const q = (params.get("q") || "").trim().slice(0, 200);
+      if (!q) return json(res, 400, { error: "no search" });
+      return json(res, 200, { matches: await cached(`s|${q.toLowerCase()}`, () => searchBooks(GOOGLE_BOOKS_API, GOOGLE_BOOKS_KEY, q)) });
+    }
+    if (path === "/api/books/pages") {
+      const title = (params.get("title") || "").trim().slice(0, 200);
+      const author = (params.get("author") || "").trim().slice(0, 100);
+      if (!title) return json(res, 400, { error: "no title" });
+      const pages = await cached(`p|${title.toLowerCase()}|${author.toLowerCase()}`, () => pageCount(GOOGLE_BOOKS_API, GOOGLE_BOOKS_KEY, title, author));
+      return json(res, 200, { pages });
+    }
+    json(res, 404, { error: "not found" });
+  } catch (err) {
+    console.error(`Google Books ${path} failed: ${err.message}`);
+    json(res, 502, { error: err.message.startsWith("Google Books") ? err.message : "Couldn't reach Google Books" });
+  }
+}
+
 function serveFile(req, res, path) {
   const rel = normalize(decodeURIComponent(path)).replace(/^[/\\]+/, "");
   let file = join(DIST, rel);
@@ -275,6 +316,7 @@ createServer(async (req, res) => {
     if (path === "/api/state") return await api(req, res);
     if (path === "/api/covers") return await covers(req, res, url.searchParams);
     if (path.startsWith("/api/audible/")) return await audible(req, res, path, url.searchParams);
+    if (path.startsWith("/api/books/")) return await books(req, res, path, url.searchParams);
     if (path === "/health") return send(res, 200, "ok");
     if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "Method not allowed");
     // The app itself: pick who you are first

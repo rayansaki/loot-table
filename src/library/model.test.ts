@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   UNDATED,
+  done,
   emptyLibrary,
+  formatOf,
+  fromGoogle,
   mergeAudible,
   releaseCheck,
   upcoming,
@@ -33,15 +36,15 @@ describe("spreading a book over the months you listened to it", () => {
     const split = splitByMonth({ started: "2026-09-14", finished: "2026-10-30", minutes: 1275 });
     expect(split.get("2026-09")!.days).toBe(17);
     expect(split.get("2026-10")!.days).toBe(30);
-    expect(Math.round(split.get("2026-09")!.minutes)).toBe(461); // 7h 41m
-    expect(Math.round(split.get("2026-10")!.minutes)).toBe(814); // 13h 34m
+    expect(Math.round(split.get("2026-09")!.amount)).toBe(461); // 7h 41m
+    expect(Math.round(split.get("2026-10")!.amount)).toBe(814); // 13h 34m
   });
 
   it("crosses a year, and puts a book with no start date in its finish month", () => {
     const split = splitByMonth({ started: "2025-12-31", finished: "2026-01-01", minutes: 100 });
-    expect(split.get("2025-12")!.minutes).toBe(50);
-    expect(split.get("2026-01")!.minutes).toBe(50);
-    expect([...splitByMonth({ started: null, finished: "2026-03-05", minutes: 90 })]).toEqual([["2026-03", { minutes: 90, days: 0 }]]);
+    expect(split.get("2025-12")!.amount).toBe(50);
+    expect(split.get("2026-01")!.amount).toBe(50);
+    expect([...splitByMonth({ started: null, finished: "2026-03-05", minutes: 90 })]).toEqual([["2026-03", { amount: 90, days: 0 }]]);
   });
 
   it("leaves out books finished without a date", () => {
@@ -70,8 +73,7 @@ describe("a year's stats", () => {
   });
 
   it("averages over the days so far this year", () => {
-    expect(Math.round(y.perDay * 90)).toBe(600); // 600 minutes over Jan–Mar (90 days)
-    expect(y.peak?.month).toBe(0);
+    expect(Math.round(y.perDay.minutes * 90)).toBe(600); // 600 minutes over Jan–Mar (90 days)
   });
 });
 
@@ -81,14 +83,14 @@ describe("merging Audible's listing into a series you have", () => {
   it("starts with no dates, extras counted", () => {
     expect(first.series.key).toBe("series:SERIES0001");
     expect(first.added).toEqual([]);
-    expect(remaining(first.series)).toEqual({ books: 3, minutes: 1420 });
+    expect(remaining(first.series)).toEqual({ books: 3, minutes: 1420, pages: 0 });
   });
 
   it("leaves out skipped books and unticked extras, and keeps both choices through a refresh", () => {
     const mine: LibSeries = structuredClone(first.series);
     mine.books[1].skip = true;
     mine.books[2].include = false;
-    expect(remaining(mine)).toEqual({ books: 1, minutes: 600 });
+    expect(remaining(mine)).toEqual({ books: 1, minutes: 600, pages: 0 });
     mine.books[0].finished = "2026-01-10";
     expect(nextBook(mine)).toBeNull();
     const again = mergeAudible(audible([["1", "B1", 600], ["2", "B2", 620], [null, "X1", 200]]), mine).series;
@@ -140,7 +142,7 @@ describe("books not out yet", () => {
   s.books[2].released = "2099-01-01";
 
   it("don't count until they're out", () => {
-    expect(remaining(s)).toEqual({ books: 1, minutes: 600 });
+    expect(remaining(s)).toEqual({ books: 1, minutes: 600, pages: 0 });
     expect(upcoming(s).map((b) => b.asin)).toEqual(["B3"]);
     expect(nextBook(s)?.asin).toBe("B2");
   });
@@ -198,5 +200,38 @@ describe("reading what people type", () => {
     expect(parseDate("10/11/2026")).toBe("2026-11-10");
     expect(parseDate("2026-1-5")).toBe("2026-01-05");
     expect(parseDate("next week")).toBeNull();
+  });
+});
+
+describe("reading as well as listening", () => {
+  const lib = emptyLibrary();
+  lib.settings.format = "read";
+  const g = fromGoogle({ id: "vol1", title: "A Court of Thorns and Roses", authors: ["Sarah J. Maas"], pages: 432, released: "2015-05-05", image: null, isbn: null });
+  g.books[0].started = "2026-01-27";
+  g.books[0].finished = "2026-02-05";
+  lib.series[g.key] = g;
+  const a = structuredClone(mergeAudible(audible([["1", "B1", 600]])).series);
+  a.books[0].finished = "2026-02-10";
+  a.books[0].format = "listen";
+  a.books[0].pages = 300; // pages of a book listened to don't count as read
+  lib.series[a.key] = a;
+
+  it("follows the book, then the series, then your usual", () => {
+    expect(formatOf(lib, g, g.books[0])).toBe("read");
+    expect(formatOf(lib, a, a.books[0])).toBe("listen");
+    expect(formatOf({ settings: { autoQueue: true, format: "listen" } }, g, g.books[0])).toBe("listen");
+  });
+
+  it("counts pages read and minutes listened apart", () => {
+    expect(done(g, lib)).toEqual({ minutes: 0, pages: 432 });
+    expect(done(a, lib)).toEqual({ minutes: 600, pages: 0 });
+    const y = yearStats(lib, 2026, "2026-03-31");
+    expect(y.pages).toBe(432);
+    expect(y.minutes).toBe(600);
+    expect([y.readBooks, y.listenedBooks]).toEqual([1, 1]);
+    // 10 days of reading: 5 in January, 5 in February
+    expect(Math.round(y.months[0].pages)).toBe(216);
+    expect(Math.round(y.months[1].pages)).toBe(216);
+    expect(y.top.find((t) => t.key === g.key)).toMatchObject({ pages: 432, books: 1 });
   });
 });
