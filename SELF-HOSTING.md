@@ -36,9 +36,24 @@ author of one you rank S or A counts as an author you like. Click it to edit or 
 
 They sync like the rest of your list and go along in Export files, but share links leave them out.
 
+## Library
+
+The **Library** tab tracks what you're listening to, Up next, a wishlist, and when you started and
+finished each book, with stats by month and year. Book lists, numbers and lengths come from Audible
+UK through the server (one book per number: the newest edition, box sets left out, side books as
+optional extras), and each series is checked again at most once a day when you open the Library,
+so a new book in a series you're caught up on shows up as NEW (and joins Up next).
+
+Hours in the stats are spread evenly over the days between a book's start and finish dates; a book
+with no start date counts in the month you finished it.
+
+**Import** takes a CSV: one row per book with `series`, and any of `series_asin`, `book` (its
+number), `title`, `length`, `started`, `finished`, and `list` (`next` or `wish`) for series rows.
+
 ## Keeping up with the original
 
 On GitHub, **Sync fork → Update branch** when it says you're behind. Railway redeploys by itself.
 This fork changes a few lines in some of the original files (`main.tsx`, `App.tsx`, `api.ts`,
-`transfer.ts`, `engine/recommend.ts` and a few components); the rest is in files of its own. Most
+`transfer.ts`, `engine/recommend.ts`, `WorkDrawer.tsx` and a few components); the rest is in files of
+its own. Most
 syncs go through cleanly; if GitHub reports a conflict, it's usually a line or two to settle.

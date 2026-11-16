@@ -3,6 +3,7 @@ import { api, hours, type WorkDetail } from "../api";
 import { isCustom } from "../custom";
 import { Cover, StatusLine, Stars, Tags, TierButtons } from "./common";
 import CustomSeriesDrawer from "./CustomSeriesDrawer";
+import LibraryButton from "./library/LibraryButton";
 
 const BOOKS_SHOWN = 10;
 
@@ -215,6 +216,7 @@ export default function WorkDrawer({ workKey, onClose }: { workKey: string | nul
                 </div>
                 <StatusLine status={work.status} />
                 <TierButtons work={work} />
+                <LibraryButton work={work} />
                 <a className="audible-link" href={work.audibleUrl} target="_blank" rel="noreferrer">
                   Open book 1 on Audible ↗
                 </a>
