@@ -1,0 +1,358 @@
+/** Holds the Library (model.ts), saves it, and talks to the server for Audible's book lists.
+ * Components read it with useLibrary(); every change goes through an action here. */
+
+import { useEffect, useState } from "react";
+import {
+  UNDATED,
+  emptyLibrary,
+  keyFor,
+  mainBooks,
+  mergeAudible,
+  newRelease,
+  nextBook,
+  sortBooks,
+  today,
+  type AudibleSeries,
+  type LibBook,
+  type LibSeries,
+  type Library,
+} from "./model";
+
+const STORE_KEY = "loot-table.library"; // synced with the rest of the list (sync.ts)
+
+let lib: Library | null = null;
+const listeners = new Set<() => void>();
+
+function read(): Library {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORE_KEY) ?? "null");
+    if (raw?.v === 1) return { ...emptyLibrary(), ...raw, settings: { ...emptyLibrary().settings, ...raw.settings } };
+  } catch {
+    /* start empty */
+  }
+  return emptyLibrary();
+}
+
+export function getLibrary(): Library {
+  return (lib ??= read());
+}
+
+function commit(next: Library): void {
+  lib = next;
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(next));
+  } catch {
+    /* storage full or blocked: keep it in memory */
+  }
+  listeners.forEach((l) => l());
+}
+
+/** Change the library: f gets a copy to modify */
+function change(f: (l: Library) => void): void {
+  const next: Library = structuredClone(getLibrary());
+  f(next);
+  commit(next);
+}
+
+function changeSeries(key: string, f: (s: LibSeries) => void): void {
+  change((l) => {
+    const s = l.series[key];
+    if (s) f(s);
+  });
+}
+
+function changeBook(key: string, bookId: string, f: (b: LibBook, s: LibSeries) => void): void {
+  changeSeries(key, (s) => {
+    const b = s.books.find((x) => x.id === bookId);
+    if (b) f(b, s);
+  });
+}
+
+export function useLibrary(): Library {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const l = () => force((n) => n + 1);
+    listeners.add(l);
+    // Another tab or a sync may have changed storage
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORE_KEY) {
+        lib = read();
+        l();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      listeners.delete(l);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+  return getLibrary();
+}
+
+// ---- The server's Audible lookups ----
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  const type = res.headers.get("content-type") ?? "";
+  if (!type.includes("application/json")) throw new Error("This needs your own server (it isn't on this site)");
+  const body = await res.json();
+  if (!res.ok) throw new Error(body?.error ?? `Error ${res.status}`);
+  return body as T;
+}
+
+export const fetchSeries = (asin: string, fresh = false) =>
+  getJson<AudibleSeries>(`api/audible/series?asin=${encodeURIComponent(asin)}${fresh ? "&fresh=1" : ""}`);
+
+export interface SeriesMatch {
+  asin: string;
+  kind: "series" | "book";
+  title: string;
+  authors: string[];
+  image: string | null;
+}
+
+export const searchAudible = async (q: string) =>
+  (await getJson<{ matches: SeriesMatch[] }>(`api/audible/search?q=${encodeURIComponent(q)}`)).matches;
+
+/** The ASIN to look up for a tier list key: Loot Table's series keys are Audible series ASINs */
+export function asinFromKey(key: string): string | null {
+  const m = key.match(/^(?:series|book):([A-Z0-9]{10})$/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+// ---- Actions ----
+
+export type Place = "next" | "wish" | "library";
+
+export interface AddOptions {
+  place: Place;
+  /** Numbered books before this index are marked finished (no dates) */
+  finishedBefore?: number;
+  /** Start this book today */
+  startIndex?: number;
+  /** Finished being written, from Loot Table's data */
+  complete?: boolean;
+}
+
+/** Add a series from Audible's listing (or merge into the one you have) */
+export function addFromAudible(info: AudibleSeries, opts: AddOptions): string {
+  const key = keyFor(info);
+  change((l) => {
+    const { series } = mergeAudible(info, l.series[key]);
+    if (opts.complete !== undefined && series.complete === undefined) series.complete = opts.complete;
+    if (opts.complete !== undefined && !l.series[key]) series.complete = opts.complete || info.kind === "book";
+    const main = mainBooks(series);
+    // Books you'd already finished, without saying when: done, but not in the stats
+    main.forEach((b, i) => {
+      if (opts.finishedBefore !== undefined && i < opts.finishedBefore && !b.finished) b.finished = UNDATED;
+    });
+    if (opts.startIndex !== undefined && main[opts.startIndex]) {
+      main[opts.startIndex].started = today();
+      main[opts.startIndex].finished = null;
+    }
+    series.wish = opts.place === "wish";
+    l.series[key] = series;
+    l.queue = l.queue.filter((k) => k !== key);
+    if (opts.place === "next" && opts.startIndex === undefined) l.queue.push(key);
+  });
+  return key;
+}
+
+/** A series without Audible: just a name, and books you add by hand */
+export function addManual(title: string, authors: string[], place: Place): string {
+  const key = `manual:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  change((l) => {
+    l.series[key] = { key, asin: null, kind: "manual", title, authors, image: null, books: [], wish: place === "wish", added: today() };
+    if (place === "next") l.queue.push(key);
+  });
+  return key;
+}
+
+export function startBook(key: string, bookId: string, date = today()): void {
+  change((l) => {
+    const s = l.series[key];
+    const b = s?.books.find((x) => x.id === bookId);
+    if (!s || !b) return;
+    b.started = date;
+    b.finished = null;
+    s.wish = false;
+    l.queue = l.queue.filter((k) => k !== key);
+    l.news = l.news.filter((n) => n.key !== key);
+  });
+}
+
+export function startNext(key: string): void {
+  const s = getLibrary().series[key];
+  const b = s && nextBook(s);
+  if (b) startBook(key, b.id);
+}
+
+/** Mark finished; returns the series' next book, to offer starting it */
+export function finishBook(key: string, bookId: string, date = today()): LibBook | null {
+  changeBook(key, bookId, (b) => {
+    b.finished = date;
+  });
+  change((l) => {
+    if (l.pinned === key) l.pinned = null;
+  });
+  const s = getLibrary().series[key];
+  return s ? nextBook(s) : null;
+}
+
+export function setDates(key: string, bookId: string, dates: { started?: string | null; finished?: string | null }): void {
+  changeBook(key, bookId, (b) => {
+    if (dates.started !== undefined) b.started = dates.started;
+    if (dates.finished !== undefined) b.finished = dates.finished;
+  });
+}
+
+/** Not listened after all */
+export function clearBook(key: string, bookId: string): void {
+  changeBook(key, bookId, (b) => {
+    b.started = null;
+    b.finished = null;
+  });
+}
+
+export function setLength(key: string, bookId: string, minutes: number | null): void {
+  changeBook(key, bookId, (b) => {
+    b.minutes = minutes;
+    b.edited = true;
+  });
+}
+
+export function setInclude(key: string, bookId: string, include: boolean): void {
+  changeBook(key, bookId, (b) => {
+    b.include = include;
+  });
+}
+
+export function addBook(key: string, book: { title: string; n: string | null; minutes: number | null }): void {
+  changeSeries(key, (s) => {
+    s.books = sortBooks([...s.books, { id: `m-${Date.now().toString(36)}`, asin: null, ...book, manual: true }]);
+  });
+}
+
+export function removeBook(key: string, bookId: string): void {
+  changeSeries(key, (s) => {
+    s.books = s.books.filter((b) => b.id !== bookId);
+  });
+}
+
+export function updateSeries(key: string, patch: Partial<Pick<LibSeries, "notes" | "complete" | "title" | "authors" | "wish">>): void {
+  changeSeries(key, (s) => Object.assign(s, patch));
+}
+
+export function removeSeries(key: string): void {
+  change((l) => {
+    delete l.series[key];
+    l.queue = l.queue.filter((k) => k !== key);
+    l.news = l.news.filter((n) => n.key !== key);
+    if (l.pinned === key) l.pinned = null;
+  });
+}
+
+export function queueAdd(key: string, front = false): void {
+  change((l) => {
+    l.queue = l.queue.filter((k) => k !== key);
+    if (front) l.queue.unshift(key);
+    else l.queue.push(key);
+    if (l.series[key]) l.series[key].wish = false;
+  });
+}
+
+export function queueRemove(key: string): void {
+  change((l) => {
+    l.queue = l.queue.filter((k) => k !== key);
+  });
+}
+
+export function queueMove(from: number, to: number): void {
+  change((l) => {
+    const [k] = l.queue.splice(from, 1);
+    if (k) l.queue.splice(to, 0, k);
+  });
+}
+
+export function toWishlist(key: string): void {
+  change((l) => {
+    l.queue = l.queue.filter((k) => k !== key);
+    if (l.series[key]) l.series[key].wish = true;
+  });
+}
+
+export function pin(key: string | null): void {
+  change((l) => {
+    l.pinned = key;
+  });
+}
+
+export function dismissNews(key: string, undoQueue = false): void {
+  change((l) => {
+    const item = l.news.find((n) => n.key === key);
+    l.news = l.news.filter((n) => n.key !== key);
+    if (undoQueue && item?.queued) l.queue = l.queue.filter((k) => k !== key);
+  });
+}
+
+export function setAutoQueue(on: boolean): void {
+  change((l) => {
+    l.settings.autoQueue = on;
+  });
+}
+
+// ---- Keeping book lists up to date ----
+
+/** Look a series up on Audible again and merge in what's changed; a new book in a series you were
+ * caught up on is news, and joins Up next if you've said so */
+export async function refreshSeries(key: string, fresh = false): Promise<void> {
+  const before = getLibrary().series[key];
+  if (!before?.asin) return;
+  const info = await fetchSeries(before.asin, fresh);
+  change((l) => {
+    const have = l.series[key];
+    if (!have) return;
+    const { series, added } = mergeAudible(info, have);
+    l.series[key] = series;
+    const release = newRelease(have, added);
+    if (release && !l.news.some((n) => n.key === key)) {
+      const queued = l.settings.autoQueue && !l.queue.includes(key);
+      if (queued) l.queue.push(key);
+      l.news.push({ key, bookId: release.id, text: `${series.title}, ${release.n ? `Book ${release.n}` : release.title}`, queued });
+    }
+  });
+}
+
+let refreshing = false;
+
+/** Once a day per series, when the Library opens. Stops at the first failure (no server, or
+ * Audible down) and tries again next time. */
+export async function refreshStale(maxAgeHours = 24): Promise<void> {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const cutoff = Date.now() - maxAgeHours * 3600_000;
+    const stale = Object.values(getLibrary().series)
+      .filter((s) => s.asin && (!s.refreshedAt || Date.parse(s.refreshedAt) < cutoff))
+      .slice(0, 40);
+    for (const s of stale) await refreshSeries(s.key, true); // past the server's short cache: this is the daily check
+  } catch {
+    /* next time */
+  } finally {
+    refreshing = false;
+  }
+}
+
+/** Put a whole series in (import), in the place given; Up next keeps the order they arrive in */
+export function putSeries(series: LibSeries, place: Place): void {
+  change((l) => {
+    l.series[series.key] = series;
+    if (place === "wish") series.wish = true;
+    if (place === "next" && !l.queue.includes(series.key)) l.queue.push(series.key);
+  });
+}
+
+/** Replace the whole library (import) */
+export function replaceLibrary(next: Library): void {
+  commit(next);
+}

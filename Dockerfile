@@ -11,6 +11,6 @@ FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/dist ./dist
-COPY server.mjs ./
+COPY server.mjs audible.mjs ./
 EXPOSE 8080
 CMD ["node", "server.mjs"]

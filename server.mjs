@@ -16,6 +16,7 @@
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
+import { searchSeries, seriesInfo } from "./audible.mjs";
 
 const PORT = Number(process.env.PORT) || 8080;
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -220,6 +221,38 @@ async function covers(req, res, params) {
   json(res, 200, { matches });
 }
 
+/** Series looked up recently, so opening the Library doesn't ask Audible again for each one */
+const seriesCache = new Map();
+
+/** The Library's Audible lookups: /api/audible/series?asin= (a series, or a book's series) and
+ * /api/audible/search?q= (series matching a search). See audible.mjs. */
+async function audible(req, res, path, params) {
+  if (!signedInAs(req)) return json(res, 401, { error: "not signed in" });
+  try {
+    if (path === "/api/audible/series") {
+      const asin = (params.get("asin") || "").trim().toUpperCase();
+      if (!/^[A-Z0-9]{10}$/.test(asin)) return json(res, 400, { error: "bad asin" });
+      const fresh = params.get("fresh") === "1";
+      const hit = seriesCache.get(asin);
+      if (hit && !fresh && hit.at > Date.now() - 6 * 3600_000) return json(res, 200, hit.info);
+      const info = await seriesInfo(AUDIBLE_API, asin);
+      if (seriesCache.size > 500) seriesCache.clear();
+      seriesCache.set(asin, { at: Date.now(), info });
+      seriesCache.set(info.asin, { at: Date.now(), info });
+      return json(res, 200, info);
+    }
+    if (path === "/api/audible/search") {
+      const q = (params.get("q") || "").trim().slice(0, 200);
+      if (!q) return json(res, 400, { error: "no search" });
+      return json(res, 200, { matches: await searchSeries(AUDIBLE_API, q) });
+    }
+    json(res, 404, { error: "not found" });
+  } catch (err) {
+    console.error(`Audible lookup ${path} failed: ${err.message}`);
+    json(res, 502, { error: err.message === "Not on Audible" ? "Not on Audible" : "Couldn't reach Audible" });
+  }
+}
+
 function serveFile(req, res, path) {
   const rel = normalize(decodeURIComponent(path)).replace(/^[/\\]+/, "");
   let file = join(DIST, rel);
@@ -241,6 +274,7 @@ createServer(async (req, res) => {
     if (path === "/logout") return logout(req, res);
     if (path === "/api/state") return await api(req, res);
     if (path === "/api/covers") return await covers(req, res, url.searchParams);
+    if (path.startsWith("/api/audible/")) return await audible(req, res, path, url.searchParams);
     if (path === "/health") return send(res, 200, "ok");
     if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "Method not allowed");
     // The app itself: pick who you are first

@@ -6,6 +6,7 @@ import WorkDrawer from "./components/WorkDrawer";
 import CommunityPage from "./pages/CommunityPage";
 import SharedPage from "./pages/SharedPage";
 import ForYouPage from "./pages/ForYouPage";
+import LibraryPage from "./pages/LibraryPage";
 import TierListPage from "./pages/TierListPage";
 import { isShareHash } from "./share";
 
@@ -13,11 +14,12 @@ const PAGES = {
   tierlist: { label: "Tier list", Component: TierListPage },
   foryou: { label: "For you", Component: ForYouPage },
   community: { label: "Community", Component: CommunityPage },
+  library: { label: "Library", Component: LibraryPage },
 } as const;
 type PageId = keyof typeof PAGES;
 
 const pageFromHash = (): PageId => {
-  const id = window.location.hash.replace("#/", "") as PageId;
+  const id = window.location.hash.replace("#/", "").split("/")[0] as PageId; // #/library/stats is the Library
   return id in PAGES ? id : "tierlist";
 };
 
