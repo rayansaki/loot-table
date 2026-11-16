@@ -65,9 +65,13 @@ export function cleanBooks(entries) {
   return [...main.map((b) => (whole(b) ? strip(b) : { ...strip(b), extra: true })), ...extras.map((b) => ({ ...strip(b), extra: true }))];
 }
 
-/** Of two editions of the same book: the narrated one over a dramatisation, then the newest */
+/** Of two editions of the same book: the narrated one over a dramatisation; then one that's really
+ * on sale (a release date and a cover: Audible keeps old listings with neither, dated 2200); then
+ * the newest */
 function better(a, b) {
   if (a.dramatised !== b.dramatised) return !a.dramatised;
+  const live = (x) => (x.released ? 2 : 0) + (x.image ? 1 : 0);
+  if (live(a) !== live(b)) return live(a) > live(b);
   return String(a.released ?? "") > String(b.released ?? "");
 }
 
@@ -113,7 +117,7 @@ export async function seriesInfo(api, asin) {
     kind: "series",
     title: series.title ?? lead?.series?.[0]?.title ?? "",
     authors: names(lead?.authors ?? series.authors).slice(0, 3),
-    image: books[0]?.image ?? image(series),
+    image: books.find((b) => b.image)?.image ?? image(series),
     books,
     fetchedAt: new Date().toISOString(),
   };

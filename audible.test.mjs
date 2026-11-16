@@ -53,6 +53,19 @@ describe("cleaning up a series from Audible", () => {
     expect(out[1].asin).toBe("B07XTLM3BL");
   });
 
+  it("passes over Audible's old listings (dated 2200, no cover) for the edition on sale", () => {
+    // The Beginning After the End, as Audible lists books 1 and 2
+    const ghost = (asin, title) => P(asin, title, 360, "2200-01-01");
+    const out = cleanBooks([
+      { sequence: "1-2", product: P("1774241307", "The Beginning After the End: Publisher's Pack", 760, "2019-12-03", { product_images: { 500: "pack.jpg" } }) },
+      { sequence: "1", product: ghost("B087GTMK2W", "Early Years") },
+      { sequence: "1", product: P("B0DH67NZMM", "Early Years", 368, "2024-10-01", { product_images: { 500: "ey.jpg" } }) },
+      { sequence: "2", product: P("B0DH5ZMRC2", "New Heights", 377, "2024-10-01", { product_images: { 500: "nh.jpg" } }) },
+      { sequence: "2", product: ghost("B087GVP1VL", "New Heights") },
+    ]);
+    expect(out.map((b) => [b.asin, b.image])).toEqual([["B0DH67NZMM", "ey.jpg"], ["B0DH5ZMRC2", "nh.jpg"]]);
+  });
+
   it("makes half-numbered books extras, kept in their place by number", () => {
     const out = cleanBooks([...cradle, { sequence: "3.5", product: P("NOVELLA001", "A Novella", 120, "2020-01-01") }]);
     expect(out.slice(2, 5).map((b) => [b.n, !!b.extra])).toEqual([["3", false], ["3.5", true], ["4", false]]);
