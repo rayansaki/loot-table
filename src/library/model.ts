@@ -85,8 +85,14 @@ export const STATUS_LABEL: Record<Status, string> = {
   unstarted: "Not started",
 };
 
+/** A real release date: Audible uses far-future ones (2200-01-01) to mean "unknown" */
+export const releaseDate = (b: Pick<LibBook, "released">) => (b.released && b.released < "2100" ? b.released : null);
+
 /** Out already: released by today (or no date known), or you've started it anyway */
-export const isOut = (b: LibBook, now = today()) => !b.released || b.released <= now || !!b.started || !!b.finished;
+export const isOut = (b: LibBook, now = today()) => {
+  const d = releaseDate(b);
+  return !d || d <= now || !!b.started || !!b.finished;
+};
 
 /** The books that count: out already, not skipped, and extras you haven't unticked */
 export const counted = (s: LibSeries) => {
