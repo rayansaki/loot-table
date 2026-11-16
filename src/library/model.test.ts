@@ -118,6 +118,15 @@ describe("merging Audible's listing into a series you have", () => {
     expect(nextBook(next.series)?.asin).toBe("B3");
   });
 
+  it("keeps track of what was out through a refresh, so a new book is news", () => {
+    const mine: LibSeries = { ...structuredClone(first.series), seen: ["n1", "n2"] };
+    mine.books[0].finished = "2026-01-10";
+    mine.books[1].finished = "2026-02-10";
+    const next = mergeAudible(audible([["1", "B1", 600], ["2", "B2", 620], ["3", "B3", 700]]), mine).series;
+    expect(next.seen).toEqual(["n1", "n2"]);
+    expect(releaseCheck(next).news?.asin).toBe("B3");
+  });
+
   it("only calls it news when you'd finished every book", () => {
     const partway = mergeAudible(audible([["1", "B1", 600], ["2", "B2", 620], ["3", "B3", 700]]), first.series);
     expect(releaseCheck({ ...partway.series, seen: ["n1", "n2"] }).news).toBeNull();

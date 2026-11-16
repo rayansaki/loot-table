@@ -382,6 +382,7 @@ export function mergeAudible(info: AudibleSeries, have?: LibSeries): { series: L
       notes: have?.notes,
       added: have?.added ?? today(),
       refreshedAt: info.fetchedAt,
+      ...(have?.seen ? { seen: have.seen } : {}),
     },
     added,
   };
