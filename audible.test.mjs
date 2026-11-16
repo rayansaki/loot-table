@@ -53,8 +53,9 @@ describe("cleaning up a series from Audible", () => {
     expect(out[1].asin).toBe("B07XTLM3BL");
   });
 
-  it("handles half-numbered books", () => {
+  it("makes half-numbered books extras, kept in their place by number", () => {
     const out = cleanBooks([...cradle, { sequence: "3.5", product: P("NOVELLA001", "A Novella", 120, "2020-01-01") }]);
-    expect(out.filter((b) => !b.extra).map((b) => b.n).slice(2, 5)).toEqual(["3", "3.5", "4"]);
+    expect(out.slice(2, 5).map((b) => [b.n, !!b.extra])).toEqual([["3", false], ["3.5", true], ["4", false]]);
+    expect(out.filter((b) => !b.extra)).toHaveLength(12);
   });
 });

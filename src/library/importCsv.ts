@@ -164,7 +164,7 @@ export async function importRows(rows: CsvRow[], onProgress: (done: number, tota
         book.minutes = minutes;
         book.edited = true;
       }
-      if (book.extra) book.include = true;
+      if (book.extra) delete book.include; // you listened to it: it counts
       result.books++;
     }
     series.books = sortBooks(series.books);

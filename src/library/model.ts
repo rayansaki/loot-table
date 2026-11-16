@@ -15,9 +15,11 @@ export interface LibBook {
   /** You set the length yourself: Audible's doesn't replace it */
   edited?: boolean;
   released?: string | null;
-  /** An unnumbered side book: counts only when you include it */
+  /** A side book (unnumbered, or half-numbered like 3.5): counts unless you untick it (include: false) */
   extra?: boolean;
   include?: boolean;
+  /** You're not going to listen to it: counts nowhere (progress, books left, what's next) */
+  skip?: boolean;
   /** Dates as YYYY-MM-DD */
   started?: string | null;
   finished?: string | null;
@@ -58,6 +60,8 @@ export interface Library {
   pinned: string | null;
   news: NewsItem[];
   settings: { autoQueue: boolean };
+  /** One-off changes already made to this library's data */
+  migrated?: string[];
 }
 
 /** Finished, but you didn't say when: counts as done, never in the stats */
@@ -78,8 +82,8 @@ export const STATUS_LABEL: Record<Status, string> = {
   unstarted: "Not started",
 };
 
-/** The books that count: the numbered ones, and extras you've included */
-export const counted = (s: LibSeries) => s.books.filter((b) => !b.extra || b.include);
+/** The books that count: the numbered ones you haven't skipped, and extras you've included */
+export const counted = (s: LibSeries) => s.books.filter((b) => !b.skip && (!b.extra || b.include !== false));
 export const mainBooks = (s: LibSeries) => s.books.filter((b) => !b.extra);
 export const isListening = (b: LibBook) => !!b.started && !b.finished;
 
@@ -93,9 +97,10 @@ export function statusOf(s: LibSeries, lib: Library): Status {
   return done ? "partway" : "unstarted";
 }
 
-/** The next book to listen to: the first numbered one not finished, then included extras */
+/** The next book to listen to: the first that counts and isn't finished, in series order (an
+ * included 3.5 comes between 3 and 4; unnumbered extras last) */
 export function nextBook(s: LibSeries): LibBook | null {
-  return mainBooks(s).find((b) => !b.finished) ?? counted(s).find((b) => !b.finished) ?? null;
+  return counted(s).find((b) => !b.finished) ?? null;
 }
 
 export function remaining(s: LibSeries): { books: number; minutes: number } {
@@ -261,7 +266,7 @@ export function yearStats(lib: Library, year: number, now = today()): YearStats 
   let first: string | null = null;
   for (const s of Object.values(lib.series)) {
     for (const b of s.books) {
-      if (b.extra && !b.include) continue;
+      if (b.skip || (b.extra && b.include === false)) continue;
       if (!hasDate(b.finished)) continue;
       const start = hasDate(b.started) && b.started <= b.finished ? b.started : b.finished;
       if (!first || start < first) first = start;
@@ -339,7 +344,8 @@ export function mergeAudible(info: AudibleSeries, have?: LibSeries): { series: L
       minutes: prev && (prev.edited || prev.finished) ? prev.minutes : a.minutes,
       ...(prev?.edited ? { edited: true } : {}),
       released: a.released,
-      ...(a.extra ? { extra: true, include: prev?.include ?? false } : {}),
+      ...(a.extra ? { extra: true, ...(prev?.include === false ? { include: false } : {}) } : {}),
+      ...(prev?.skip ? { skip: true } : {}),
       started: prev?.started ?? null,
       finished: prev?.finished ?? null,
     };
@@ -348,6 +354,7 @@ export function mergeAudible(info: AudibleSeries, have?: LibSeries): { series: L
   });
   // Books Audible no longer lists: keep the ones you've added or logged
   for (const b of old) if (!used.has(b) && (b.manual || b.started || b.finished)) books.push(b);
+  // (a new half-numbered book isn't "added": it's an extra, not the next book in the series)
   return {
     series: {
       key: have?.key ?? keyFor(info),
@@ -380,7 +387,8 @@ export function sortBooks(books: LibBook[]): LibBook[] {
  * moment it's worth telling you (and queueing it) */
 export function newRelease(before: LibSeries, added: LibBook[]): LibBook | null {
   if (!added.length) return null;
-  const doneBefore = mainBooks(before).every((b) => b.finished) && mainBooks(before).length > 0;
+  const main = mainBooks(before).filter((b) => !b.skip);
+  const doneBefore = main.length > 0 && main.every((b) => b.finished);
   if (!doneBefore) return null;
   return added[0];
 }

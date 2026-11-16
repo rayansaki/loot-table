@@ -3,7 +3,7 @@
 // Audible lists every edition of every book in a series: Cradle has 19 entries for 12 books, because
 // books 1–6 were re-released and there's an unnumbered side book. So the books are cleaned up:
 // one per series number (the newest edition, unless it's a dramatised one), box sets left out, and
-// unnumbered books kept apart as extras.
+// unnumbered and half-numbered books (side stories, novellas) kept apart as extras.
 
 const RESPONSE = "product_attrs,product_desc,contributors,series,media,relationships";
 
@@ -59,7 +59,9 @@ export function cleanBooks(entries) {
   const main = [...byNumber.values()].sort((a, b) => parseFloat(a.n) - parseFloat(b.n));
   extras.sort((a, b) => String(a.released).localeCompare(String(b.released)));
   const strip = ({ dramatised, ...b }) => b;
-  return [...main.map(strip), ...extras.map((b) => ({ ...strip(b), extra: true }))];
+  // A half-numbered book (3.5) is usually a novella: an extra, kept in its place by number
+  const whole = (b) => Number.isInteger(parseFloat(b.n));
+  return [...main.map((b) => (whole(b) ? strip(b) : { ...strip(b), extra: true })), ...extras.map((b) => ({ ...strip(b), extra: true }))];
 }
 
 /** Of two editions of the same book: the narrated one over a dramatisation, then the newest */
