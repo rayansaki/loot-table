@@ -8,7 +8,8 @@ import {
   keyFor,
   mainBooks,
   mergeAudible,
-  newRelease,
+  isOut,
+  releaseCheck,
   nextBook,
   sortBooks,
   today,
@@ -166,7 +167,7 @@ export function addFromAudible(info: AudibleSeries, opts: AddOptions): string {
     const main = mainBooks(series);
     // Books you'd already finished, without saying when: done, but not in the stats
     main.forEach((b, i) => {
-      if (opts.finishedBefore !== undefined && i < opts.finishedBefore && !b.finished) b.finished = UNDATED;
+      if (opts.finishedBefore !== undefined && i < opts.finishedBefore && !b.finished && isOut(b)) b.finished = UNDATED;
     });
     if (opts.startIndex !== undefined && main[opts.startIndex]) {
       main[opts.startIndex].started = today();
@@ -174,6 +175,7 @@ export function addFromAudible(info: AudibleSeries, opts: AddOptions): string {
     }
     series.wish = opts.place === "wish";
     l.series[key] = series;
+    series.seen = releaseCheck(series).seen;
     l.queue = l.queue.filter((k) => k !== key);
     if (opts.place === "next" && opts.startIndex === undefined) l.queue.push(key);
   });
@@ -343,15 +345,33 @@ export async function refreshSeries(key: string, fresh = false): Promise<void> {
   change((l) => {
     const have = l.series[key];
     if (!have) return;
-    const { series, added } = mergeAudible(info, have);
-    l.series[key] = series;
-    const release = newRelease(have, added);
-    if (release && !l.news.some((n) => n.key === key)) {
-      const queued = l.settings.autoQueue && !l.queue.includes(key);
-      if (queued) l.queue.push(key);
-      l.news.push({ key, bookId: release.id, text: `${series.title}, ${release.n ? `Book ${release.n}` : release.title}`, queued });
-    }
+    l.series[key] = mergeAudible(info, have).series;
+    noteRelease(l, key);
   });
+}
+
+/** Record what's out for a series, and make news of a book that's come out (see releaseCheck) */
+function noteRelease(l: Library, key: string): boolean {
+  const s = l.series[key];
+  if (!s) return false;
+  const { news, seen } = releaseCheck(s);
+  const changed = JSON.stringify(seen) !== JSON.stringify(s.seen);
+  s.seen = seen;
+  if (news && !l.news.some((n) => n.key === key)) {
+    const queued = l.settings.autoQueue && !l.queue.includes(key);
+    if (queued) l.queue.push(key);
+    l.news.push({ key, bookId: news.id, text: `${s.title}, ${news.n ? `Book ${news.n}` : news.title}`, queued });
+    return true;
+  }
+  return changed;
+}
+
+/** Books whose release date has arrived since you last looked: no Audible call needed */
+export function checkReleases(): void {
+  const l: Library = structuredClone(getLibrary());
+  let changed = false;
+  for (const key of Object.keys(l.series)) changed = noteRelease(l, key) || changed;
+  if (changed) commit(l);
 }
 
 let refreshing = false;
@@ -366,6 +386,7 @@ export async function refreshStale(maxAgeHours = 24): Promise<void> {
     const stale = Object.values(getLibrary().series)
       .filter((s) => s.asin && (!s.refreshedAt || Date.parse(s.refreshedAt) < cutoff))
       .slice(0, 40);
+    checkReleases();
     for (const s of stale) await refreshSeries(s.key, true); // past the server's short cache: this is the daily check
   } catch {
     /* next time */
@@ -378,6 +399,7 @@ export async function refreshStale(maxAgeHours = 24): Promise<void> {
 export function putSeries(series: LibSeries, place: Place): void {
   change((l) => {
     l.series[series.key] = series;
+    series.seen = releaseCheck(series).seen;
     if (place === "wish") series.wish = true;
     if (place === "next" && !l.queue.includes(series.key)) l.queue.push(series.key);
   });
