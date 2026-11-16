@@ -20,6 +20,8 @@ export interface LibBook {
   /** How many pages, for reading: Google Books' count, or yours (pagesEdited) */
   pages?: number | null;
   pagesEdited?: boolean;
+  /** When Google Books was last asked (pages 0: it had none, asked again after a month) */
+  pagesChecked?: string;
   /** Read or listened, when it's not the series' way (see formatOf) */
   format?: Format;
   /** Its Google Books volume, for a book that came from there */

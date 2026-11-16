@@ -49,25 +49,100 @@ export async function searchBooks(api, key, q) {
 const words = (s) =>
   String(s ?? "")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{N}.]+/gu, " ")
+    .replace(/(?<!\d)\.|\.(?!\d)/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 
-/** How many pages a book has: the editions Google Books lists for that title and author, in
- * English, with a page count. Several editions disagree; the middle one is the safest guess. */
-export async function pageCount(api, key, title, author) {
-  const q = [`intitle:${title}`, author ? `inauthor:${author}` : ""].filter(Boolean).join(" ");
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
+const ROMAN = ["", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii", "xiii", "xiv", "xv", "xvi", "xvii", "xviii", "xix", "xx"];
+const numberOf = (w) => {
+  if (/^\d+(\.\d+)?$/.test(w)) return String(parseFloat(w));
+  const i = NUMBER_WORDS.indexOf(w);
+  return i >= 0 ? String(i) : null;
+};
+
+/** Not the book itself: an adaptation, a bundle, a translation's labelling, or a companion */
+const NOT_THE_BOOK = /light novel|graphic novel|manga|comic|box(ed)? set|collection|omnibus|books? \d+\s*(-|–|to|and|&)\s*\d+|colou?ring|summary|workbook|study guide|\btome\b|\btom \d|bundle/i;
+
+/** A title as series name + number: "The Primal Hunter 9: A LitRPG Adventure" → { base: "primal hunter",
+ * n: "9" }; "The Perfect Run III" → n "3"; "Azarinth Healer Book Seven" → n "7"; "The Primal Hunter: A
+ * LitRPG Adventure. book one" → n "1". A leading "the/a/an" and the subtitle don't count. */
+export function parseTitle(title, subtitle = "") {
+  const main = words(String(title).split(":")[0]);
+  const all = `${main} ${words(subtitle)} ${words(String(title).split(":").slice(1).join(" "))}`;
+  let n = null;
+  let base = main;
+  // "... book seven" / "... volume 2" in the main title
+  let m = base.match(/^(.*?)\s+(?:book|volume|vol|part)\s+(\S+)$/);
+  if (m && numberOf(m[2])) [base, n] = [m[1], numberOf(m[2])];
+  // a trailing number or Roman numeral: "primal hunter 9", "perfect run iii"
+  if (!n) {
+    m = base.match(/^(.*\S)\s+(\d+(?:\.\d+)?|[ivx]{1,5})$/);
+    if (m && (/^\d/.test(m[2]) || ROMAN.includes(m[2]))) [base, n] = [m[1], /^\d/.test(m[2]) ? String(parseFloat(m[2])) : String(ROMAN.indexOf(m[2]))];
+  }
+  // "book one" in the subtitle
+  if (!n) {
+    m = all.match(/\b(?:book|volume|vol)\s+(\S+)/);
+    if (m && numberOf(m[1])) n = numberOf(m[1]);
+  }
+  base = base.replace(/^(the|a|an)\s+/, "").replace(/\s+series$/, "").trim();
+  return { base, n };
+}
+
+/** The editions Google Books has of a series' books: two pages of results for the series' name and
+ * author, which beats searching book by book (translations and adaptations crowd those out) */
+export async function seriesEditions(api, key, series, author) {
+  const surname = words(author).split(" ").pop() ?? "";
+  const q = `intitle:"${parseTitle(series).base}"${surname ? ` inauthor:${surname}` : ""}`;
+  const out = [];
+  for (const startIndex of ["0", "40"]) {
+    const query = new URLSearchParams({ q, maxResults: "40", startIndex, printType: "books", key });
+    const items = (await getJson(`${api}/books/v1/volumes?${query}`)).items ?? [];
+    out.push(...items);
+    if (items.length < 40) break;
+  }
+  return out;
+}
+
+async function titleEditions(api, key, title, author) {
+  const surname = words(author).split(" ").pop() ?? "";
+  const q = `intitle:"${String(title).split(":")[0]}"${surname ? ` inauthor:${surname}` : ""}`;
   const query = new URLSearchParams({ q, maxResults: "20", printType: "books", key });
-  const found = ((await getJson(`${api}/books/v1/volumes?${query}`)).items ?? []).map(volume);
-  const want = words(title);
+  return (await getJson(`${api}/books/v1/volumes?${query}`)).items ?? [];
+}
+
+/** How many pages a book has, from the English editions Google Books has of it: matched by the
+ * book's own title if it has one ("Carl's Doomsday Scenario"), else by the series' name and the
+ * book's number in it, written any way ("4", "IV", "Book Four"); an unnumbered edition counts as
+ * book 1. Editions disagree a little; the middle one is the safest guess. `editions` caches the
+ * series' search between books. */
+export async function pageCount(api, key, title, author, series = "", n = null, editions = null) {
   const surname = words(author).split(" ").pop();
-  const counts = found
-    .filter((b) => b.pages && (!b.language || b.language === "en"))
-    .filter((b) => {
-      const t = words(b.title);
-      return t === want || t.startsWith(`${want} `) || want.startsWith(`${t} `);
-    })
-    .filter((b) => !surname || b.authors.some((a) => words(a).includes(surname)))
-    .map((b) => b.pages)
-    .sort((a, b) => a - b);
+  const want = parseTitle(title);
+  const seriesBase = series ? parseTitle(series).base : want.base;
+  const number = n != null && n !== "" ? String(parseFloat(n)) : want.n ?? (want.base === seriesBase ? "1" : null);
+  // A title of its own: not just the series' name (and a number)
+  const ownTitle = want.base && want.base !== seriesBase;
+  const pool = [
+    ...(editions ? await editions() : series ? await seriesEditions(api, key, series, author) : []),
+    ...(ownTitle || !series ? await titleEditions(api, key, title, author) : []),
+  ];
+  const seen = new Set();
+  const counts = [];
+  for (const item of pool) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    const v = item.volumeInfo ?? {};
+    if (!(v.pageCount > 0) || (v.language && v.language !== "en")) continue;
+    if (NOT_THE_BOOK.test(`${v.title ?? ""} ${v.subtitle ?? ""}`)) continue;
+    if (surname && !(v.authors ?? []).some((a) => words(a).includes(surname))) continue;
+    const got = parseTitle(v.title ?? "", v.subtitle ?? "");
+    const match = ownTitle
+      ? got.base === want.base
+      : got.base === seriesBase && (got.n ?? "1") === number;
+    if (match) counts.push(v.pageCount);
+  }
+  counts.sort((a, b) => a - b);
   return counts.length ? counts[Math.floor(counts.length / 2)] : null;
 }

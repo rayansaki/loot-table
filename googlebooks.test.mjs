@@ -33,3 +33,61 @@ describe("a book's page count", () => {
     expect(await pageCount("https://x", "k", "Nothing", "Nobody")).toBeNull();
   });
 });
+
+import { parseTitle } from "./googlebooks.mjs";
+
+describe("a title as series name and number", () => {
+  it("reads numbers written any way", () => {
+    expect(parseTitle("The Primal Hunter 9: A LitRPG Adventure")).toEqual({ base: "primal hunter", n: "9" });
+    expect(parseTitle("Primal Hunter 4: A LitRPG Adventure")).toEqual({ base: "primal hunter", n: "4" });
+    expect(parseTitle("The Primal Hunter: A LitRPG Adventure. book one")).toEqual({ base: "primal hunter", n: "1" });
+    expect(parseTitle("The Perfect Run III")).toEqual({ base: "perfect run", n: "3" });
+    expect(parseTitle("The Perfect Run 3")).toEqual({ base: "perfect run", n: "3" });
+    expect(parseTitle("Azarinth Healer Book Seven: A LitRPG Adventure")).toEqual({ base: "azarinth healer", n: "7" });
+    expect(parseTitle("Azarinth Healer: A LitRPG Adventure. Book one")).toEqual({ base: "azarinth healer", n: "1" });
+    expect(parseTitle("Azarinth Healer, Book 1")).toEqual({ base: "azarinth healer", n: "1" });
+    expect(parseTitle("The Perfect Run")).toEqual({ base: "perfect run", n: null });
+    expect(parseTitle("Solo Leveling Series")).toEqual({ base: "solo leveling", n: null });
+  });
+});
+
+describe("page counts by series number", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const v = (id, title, pages, extra = {}) => ({ id, volumeInfo: { title, authors: ["Zogarth"], pageCount: pages, language: "en", ...extra } });
+  // What Google Books lists for The Primal Hunter (checked on books.google.com)
+  const primal = [
+    v("a", "Primal Hunter Tome 5 - Volume 5", 600, { language: "fr" }),
+    v("b", "The Primal Hunter 9: A LitRPG Adventure", 602),
+    v("c", "Primal Hunter 4: A LitRPG Adventure", 752),
+    v("d", "The Primal Hunter 2: A LitRPG Adventure", 700),
+    v("e", "Primal Hunter. Tom 1", 650, { language: "pl" }),
+    v("f", "The Primal Hunter: A LitRPG Adventure", 698),
+    v("g", "The Primal Hunter (Light Novel) Vol. 1", 224),
+  ];
+  const editions = async () => primal;
+
+  it("finds each book by its number, the unnumbered one being book 1, leaving out translations and adaptations", async () => {
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({}) }));
+    expect(await pageCount("x", "k", "The Primal Hunter 4", "Zogarth", "The Primal Hunter", "4", editions)).toBe(752);
+    expect(await pageCount("x", "k", "The Primal Hunter 9", "Zogarth", "The Primal Hunter", "9", editions)).toBe(602);
+    expect(await pageCount("x", "k", "The Primal Hunter", "Zogarth", "The Primal Hunter", "1", editions)).toBe(698);
+    expect(await pageCount("x", "k", "The Primal Hunter 5", "Zogarth", "The Primal Hunter", "5", editions)).toBeNull();
+  });
+
+  it("matches Roman numerals to Audible's numbers", async () => {
+    const run = [v("1", "The Perfect Run", 500, { authors: ["Maxime J. Durand"] }), v("2", "The Perfect Run II", 520, { authors: ["Maxime Julien Durand"] }), v("3", "The Perfect Run III", 540, { authors: ["Maxime J. Durand"] })];
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({}) }));
+    const e = async () => run;
+    expect(await pageCount("x", "k", "The Perfect Run 3", "Maxime J. Durand", "The Perfect Run", "3", e)).toBe(540);
+    expect(await pageCount("x", "k", "The Perfect Run II", "Maxime J. Durand", "The Perfect Run", "2", e)).toBe(520);
+    expect(await pageCount("x", "k", "The Perfect Run", "Maxime J. Durand", "The Perfect Run", "1", e)).toBe(500);
+  });
+
+  it("matches a book with a title of its own by that title", async () => {
+    const dcc = [v("x", "Carl's Doomsday Scenario: Dungeon Crawler Carl Book 2", 380, { authors: ["Matt Dinniman"] }), v("y", "Dungeon Crawler Carl", 450, { authors: ["Matt Dinniman"] })];
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({ items: dcc }) }));
+    const e = async () => dcc;
+    expect(await pageCount("x", "k", "Carl's Doomsday Scenario", "Matt Dinniman", "Dungeon Crawler Carl", "2", e)).toBe(380);
+    expect(await pageCount("x", "k", "Dungeon Crawler Carl", "Matt Dinniman", "Dungeon Crawler Carl", "1", e)).toBe(450);
+  });
+});

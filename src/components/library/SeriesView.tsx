@@ -59,6 +59,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
   const [editing, setEditing] = useState<string | null>(null);
   const [bad, setBad] = useState<{ id: string; text: string } | null>(null);
   const [refreshing, setRefreshing] = useState<"" | "busy" | "done" | string>("");
+  const [paging, setPaging] = useState<"" | "busy" | string>("");
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [adding, setAdding] = useState(false);
 
@@ -381,6 +382,23 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                 The author has finished this series
               </label>
             )}
+            {s.books.some((b) => formatOf(lib, s, b) === "read") && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="lib-sm"
+                  disabled={paging === "busy"}
+                  onClick={async () => {
+                    setPaging("busy");
+                    const r = await fillPages(s.key, 60, true);
+                    setPaging(r.failed ?? (r.looked ? `Google Books had ${r.found} of ${r.looked}.` : "Nothing to look up."));
+                  }}
+                >
+                  {paging === "busy" ? "Asking Google Books…" : "Look up page counts again"}
+                </button>
+                <span className="small muted">{paging !== "busy" ? paging : ""}</span>
+              </div>
+            )}
             {s.asin && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <button type="button" className="lib-sm" onClick={refresh} disabled={refreshing === "busy"}>
@@ -508,7 +526,11 @@ function PagesInput({ value, onChange, label }: { value: number | null; onChange
       placeholder="pages"
       aria-label={label}
       inputMode="numeric"
-      onFocus={() => setText(value ? String(value) : "")}
+      onFocus={(e) => {
+        setText(value ? String(value) : "");
+        const box = e.currentTarget; // typing replaces the count rather than adding to it
+        requestAnimationFrame(() => box.select());
+      }}
       onChange={(e) => setText(e.target.value)}
       onBlur={() => {
         if (text === null) return;

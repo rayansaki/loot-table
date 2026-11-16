@@ -19,7 +19,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, stat
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { searchSeries, seriesInfo } from "./audible.mjs";
-import { pageCount, searchBooks } from "./googlebooks.mjs";
+import { pageCount, searchBooks, seriesEditions } from "./googlebooks.mjs";
 
 const PORT = Number(process.env.PORT) || 8080;
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -265,9 +265,10 @@ const booksCache = new Map();
 async function books(req, res, path, params) {
   if (!signedInAs(req)) return json(res, 401, { error: "not signed in" });
   if (!GOOGLE_BOOKS_KEY) return json(res, 503, { error: "Google Books isn't set up (GOOGLE_BOOKS_KEY)" });
+  const fresh = params.get("fresh") === "1"; // "look up page counts again": past the cache
   const cached = (k, f) => {
     const hit = booksCache.get(k);
-    if (hit && hit.at > Date.now() - 7 * 86400_000) return hit.value;
+    if (hit && !fresh && hit.at > Date.now() - 7 * 86400_000) return Promise.resolve(hit.value);
     return f().then((value) => {
       if (booksCache.size > 2000) booksCache.clear();
       booksCache.set(k, { at: Date.now(), value });
@@ -283,8 +284,14 @@ async function books(req, res, path, params) {
     if (path === "/api/books/pages") {
       const title = (params.get("title") || "").trim().slice(0, 200);
       const author = (params.get("author") || "").trim().slice(0, 100);
+      const series = (params.get("series") || "").trim().slice(0, 200);
+      const n = (params.get("n") || "").trim().slice(0, 10);
       if (!title) return json(res, 400, { error: "no title" });
-      const pages = await cached(`p|${title.toLowerCase()}|${author.toLowerCase()}`, () => pageCount(GOOGLE_BOOKS_API, GOOGLE_BOOKS_KEY, title, author));
+      // One search for the whole series, shared by its books
+      const editions = series ? () => cached(`e|${series.toLowerCase()}|${author.toLowerCase()}`, () => seriesEditions(GOOGLE_BOOKS_API, GOOGLE_BOOKS_KEY, series, author)) : null;
+      const pages = await cached(`p2|${title.toLowerCase()}|${author.toLowerCase()}|${series.toLowerCase()}|${n}`, () =>
+        pageCount(GOOGLE_BOOKS_API, GOOGLE_BOOKS_KEY, title, author, series, n || null, editions),
+      );
       return json(res, 200, { pages });
     }
     json(res, 404, { error: "not found" });
