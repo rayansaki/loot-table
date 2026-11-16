@@ -53,3 +53,20 @@ describe("your usual way", () => {
     expect(store.getLibrary().series["gbook:x"].format).toBe("read");
   });
 });
+
+describe("looking up page counts again", () => {
+  beforeEach(() => {
+    storage.clear();
+    vi.resetModules();
+  });
+
+  it("keeps a count found before when Google Books has nothing this time", async () => {
+    const store = await import("./store");
+    store.setDefaultFormat("read");
+    vi.stubGlobal("fetch", async (u: string) => ({ ok: true, headers: new Headers({ "content-type": "application/json" }), json: async () => (String(u).includes("books/pages") ? { pages: null } : {}) }));
+    const k = store.addFromGoogle(book("d"), "library"); // 200 pages, from Google Books' search
+    const r = await store.fillPages(k, 10, true);
+    expect(r.looked).toBe(1);
+    expect(store.getLibrary().series[k].books[0].pages).toBe(200);
+  });
+});
