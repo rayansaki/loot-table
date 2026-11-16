@@ -70,3 +70,41 @@ describe("looking up page counts again", () => {
     expect(store.getLibrary().series[k].books[0].pages).toBe(200);
   });
 });
+
+describe("a page count you typed", () => {
+  beforeEach(() => {
+    storage.clear();
+    vi.resetModules();
+  });
+
+  it("is left alone by lookups, and emptying it hands the book back to them", async () => {
+    const store = await import("./store");
+    store.setDefaultFormat("read");
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", async (u: string) => {
+      if (String(u).includes("books/pages")) asked.push(String(u));
+      return { ok: true, headers: new Headers({ "content-type": "application/json" }), json: async () => ({ pages: 333 }) };
+    });
+    const k = store.addFromGoogle(book("e"), "library");
+    const id = store.getLibrary().series[k].books[0].id;
+    store.setPages(k, id, 125);
+    expect((await store.fillPages(k, 10, true)).looked).toBe(0);
+    expect(store.getLibrary().series[k].books[0].pages).toBe(125);
+    store.setPages(k, id, null);
+    expect((await store.fillPages(k, 10, true)).looked).toBe(1);
+    expect(store.getLibrary().series[k].books[0].pages).toBe(333);
+  });
+
+  it("looks up a book left marked as typed but empty, as clearing one used to leave it", async () => {
+    const store = await import("./store");
+    store.setDefaultFormat("read");
+    vi.stubGlobal("fetch", async () => ({ ok: true, headers: new Headers({ "content-type": "application/json" }), json: async () => ({ pages: 290 }) }));
+    const k = store.addFromGoogle(book("f"), "library");
+    const s = store.getLibrary().series[k];
+    s.books[0].pages = null;
+    s.books[0].pagesEdited = true;
+    expect((await store.fillPages(k, 10, true)).looked).toBe(1);
+    expect(store.getLibrary().series[k].books[0]).toMatchObject({ pages: 290 });
+    expect(store.getLibrary().series[k].books[0].pagesEdited).toBeUndefined();
+  });
+});

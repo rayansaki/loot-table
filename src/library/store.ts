@@ -286,10 +286,17 @@ export function setSkip(key: string, bookId: string, skip: boolean): void {
   });
 }
 
+/** A page count you typed (lookups leave it alone); emptied, the book goes back to Google Books */
 export function setPages(key: string, bookId: string, pages: number | null): void {
   changeBook(key, bookId, (b) => {
-    b.pages = pages;
-    b.pagesEdited = true;
+    if (pages) {
+      b.pages = pages;
+      b.pagesEdited = true;
+    } else {
+      b.pages = null;
+      delete b.pagesEdited;
+      delete b.pagesChecked;
+    }
   });
 }
 
@@ -336,7 +343,7 @@ export async function fillPages(key: string, limit = 40, again = false): Promise
   const want = s.books.filter(
     (b) =>
       !b.skip &&
-      !b.pagesEdited &&
+      !(b.pagesEdited && b.pages) && // typed by you (an emptied one, from before, doesn't count)
       formatOf(l, s, b) === "read" &&
       !asking.has(`${key}|${b.id}`) &&
       (again || b.pages == null || (b.pages === 0 && (!b.pagesChecked || b.pagesChecked < monthAgo))),
@@ -354,7 +361,8 @@ export async function fillPages(key: string, limit = 40, again = false): Promise
       if (again) q.set("fresh", "1");
       const { pages } = await getJson<{ pages: number | null }>(`api/books/pages?${q}`);
       changeBook(key, b.id, (x) => {
-        if (x.pagesEdited) return;
+        if (x.pagesEdited && x.pages) return;
+        delete x.pagesEdited;
         // A count found before stays when Google has nothing this time; 0: asked, none found
         if (pages) x.pages = pages;
         else if (x.pages == null) x.pages = 0;

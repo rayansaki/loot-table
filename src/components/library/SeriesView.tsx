@@ -508,7 +508,8 @@ function LengthInput({ value, onChange, label }: { value: number | null; onChang
       onBlur={() => {
         if (text === null) return;
         const m = parseLength(text);
-        if (text.trim() === "" || m !== null) onChange(m);
+        // Only a changed length counts as yours (Audible stops updating it)
+        if ((text.trim() === "" || m !== null) && m !== value) onChange(m);
         setText(null);
       }}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
@@ -535,7 +536,9 @@ function PagesInput({ value, onChange, label }: { value: number | null; onChange
       onBlur={() => {
         if (text === null) return;
         const n = parseInt(text.replace(/[^\d]/g, ""), 10);
-        if (text.trim() === "" || n > 0) onChange(n > 0 ? n : null);
+        const next = n > 0 ? n : null;
+        // Only a changed number counts as yours: clicking in and out leaves the book as it was
+        if ((text.trim() === "" || n > 0) && next !== (value || null)) onChange(next);
         setText(null);
       }}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
