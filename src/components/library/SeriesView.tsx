@@ -10,9 +10,11 @@ import {
   fmtMinutes,
   hasDate,
   isListening,
+  isOut,
   listened,
   mainBooks,
   nextBook,
+  upcoming,
   parseLength,
   splitByMonth,
   statusOf,
@@ -71,6 +73,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
   const done = books.filter((b) => b.finished).length;
   const listening = books.find(isListening);
   const nb = nextBook(s);
+  const soon = upcoming(s)[0];
   const queued = lib.queue.includes(s.key);
   const tier = bucketOf(s.key);
   const t = tier && tier !== "unplaced" ? tier : null;
@@ -116,13 +119,20 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
           <div className="lib-chips">
             <span className={`lib-status lib-status-${status}`}>{STATUS_LABEL[status]}</span>
             {isNew && nb && <span className="lib-status lib-status-finished">{bookLabel(nb)} out</span>}
+            {!nb && soon && (
+              <span className="lib-status lib-status-unstarted">
+                {bookLabel(soon)} due {fmtDate(soon.released)}
+              </span>
+            )}
             {s.kind === "manual" && <span className="lib-status lib-status-unstarted">Not on Audible</span>}
           </div>
           <h1>{s.title}</h1>
           <div className="muted">
             {s.authors.join(", ") || "No author"}
             {s.kind === "series" &&
-              ` · ${mainBooks(s).length} book${mainBooks(s).length === 1 ? "" : "s"} on Audible${extras ? ` + ${extras} extra${extras === 1 ? "" : "s"}` : ""}`}
+              ` · ${mainBooks(s).length} book${mainBooks(s).length === 1 ? "" : "s"} on Audible${extras ? ` + ${extras} extra${extras === 1 ? "" : "s"}` : ""}${
+                upcoming(s).length ? ` · ${upcoming(s).length} not out yet` : ""
+              }`}
           </div>
           <div className="lib-actions" style={{ marginTop: 4 }}>
             {listening ? (
@@ -175,6 +185,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                 <span>#</span>
                 <span>Book</span>
                 <span>Length</span>
+                <span>Released</span>
                 <span>Started</span>
                 <span>Finished</span>
                 <span style={{ textAlign: "right" }}>Days</span>
@@ -186,8 +197,9 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                 const open = editing === b.id || bad?.id === b.id;
                 const split = open && !off ? splitByMonth(b) : null;
                 const fresh = isNew && !b.finished && !b.started && b.id === nb?.id;
+                const coming = !isOut(b);
                 return (
-                  <div key={b.id} className={`lib-book ${off ? "off" : ""}`} onFocus={() => setEditing(b.id)}>
+                  <div key={b.id} className={`lib-book ${off || coming ? "off" : ""}`} onFocus={() => setEditing(b.id)}>
                     <span className={`lib-check ${off ? "" : b.finished ? "done" : isListening(b) ? "listening" : fresh ? "new" : ""}`} aria-hidden="true">
                       {off ? "–" : b.finished ? "✓" : isListening(b) ? "▸" : ""}
                     </span>
@@ -196,12 +208,17 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                       {b.title}
                       {off ? (
                         <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>Skipped</span>
+                      ) : coming ? (
+                        <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>Not out yet</span>
                       ) : b.extra && b.n ? (
                         <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>Extra</span>
                       ) : null}
                       {fresh && <span className="lib-new-line" style={{ display: "inline", marginLeft: 8 }}>New</span>}
                     </span>
                     <LengthInput value={b.minutes} onChange={(m) => setLength(s.key, b.id, m)} label={`Length of ${b.title}`} />
+                    <span className={`small ${coming ? "lib-warn" : "muted"}`} title={coming ? "Not out yet: it doesn't count until it is" : undefined}>
+                      {b.released ? `${coming ? "Coming " : ""}${fmtDate(b.released)}` : ""}
+                    </span>
                     <input
                       className={`lib-date ${bad?.id === b.id ? "bad" : ""}`}
                       type="date"
@@ -371,6 +388,14 @@ function BookAction({ s, b }: { s: LibSeries; b: LibBook }) {
       >
         Unskip
       </button>
+    );
+  if (!isOut(b))
+    return (
+      <span style={{ display: "flex", gap: 4 }}>
+        <button type="button" className="lib-sm" title="Not listening to this one: it won't count" aria-label={`Skip ${b.title}`} onClick={() => setSkip(s.key, b.id, true)}>
+          Skip
+        </button>
+      </span>
     );
   if (isListening(b))
     return (

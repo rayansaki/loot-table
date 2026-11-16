@@ -3,7 +3,8 @@ import {
   UNDATED,
   emptyLibrary,
   mergeAudible,
-  newRelease,
+  releaseCheck,
+  upcoming,
   nextBook,
   nowListening,
   parseDate,
@@ -113,13 +114,49 @@ describe("merging Audible's listing into a series you have", () => {
     // An unfinished book takes the new edition's length
     const unfinished = mergeAudible(audible([["1", "B1", 600], ["2", "B2-new", 640]]), first.series);
     expect(unfinished.series.books[1].minutes).toBe(640);
-    expect(newRelease(mine, next.added)?.asin).toBe("B3");
+    expect(releaseCheck({ ...next.series, seen: ["n1", "n2"] }).news?.asin).toBe("B3");
     expect(nextBook(next.series)?.asin).toBe("B3");
+  });
+
+  it("keeps track of what was out through a refresh, so a new book is news", () => {
+    const mine: LibSeries = { ...structuredClone(first.series), seen: ["n1", "n2"] };
+    mine.books[0].finished = "2026-01-10";
+    mine.books[1].finished = "2026-02-10";
+    const next = mergeAudible(audible([["1", "B1", 600], ["2", "B2", 620], ["3", "B3", 700]]), mine).series;
+    expect(next.seen).toEqual(["n1", "n2"]);
+    expect(releaseCheck(next).news?.asin).toBe("B3");
   });
 
   it("only calls it news when you'd finished every book", () => {
     const partway = mergeAudible(audible([["1", "B1", 600], ["2", "B2", 620], ["3", "B3", 700]]), first.series);
-    expect(newRelease(first.series, partway.added)).toBeNull();
+    expect(releaseCheck({ ...partway.series, seen: ["n1", "n2"] }).news).toBeNull();
+  });
+});
+
+describe("books not out yet", () => {
+  const s = structuredClone(mergeAudible(audible([["1", "B1", 600], ["2", "B2", 600], ["3", "B3", 600]])).series);
+  s.books[0].finished = "2026-01-10";
+  s.books[1].released = "2026-02-01";
+  s.books[2].released = "2099-01-01";
+
+  it("don't count until they're out", () => {
+    expect(remaining(s)).toEqual({ books: 1, minutes: 600 });
+    expect(upcoming(s).map((b) => b.asin)).toEqual(["B3"]);
+    expect(nextBook(s)?.asin).toBe("B2");
+  });
+
+  it("are news on the day they come out, not when they're listed", () => {
+    const caught = structuredClone(s);
+    caught.books[1].finished = "2026-03-01";
+    const listed = releaseCheck(caught, "2026-11-16");
+    expect(listed.news).toBeNull(); // book 3 is listed, but not out
+    expect(listed.seen).toEqual(["n1", "n2"]);
+    const day = releaseCheck({ ...caught, seen: listed.seen }, "2099-01-01");
+    expect(day.news?.asin).toBe("B3");
+  });
+
+  it("don't count as news the first time a series is checked", () => {
+    expect(releaseCheck({ ...s, seen: undefined }).news).toBeNull();
   });
 });
 

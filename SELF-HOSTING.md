@@ -44,7 +44,9 @@ UK through the server (one book per number: the newest edition, box sets left ou
 half-numbered novellas as extras), and each series is checked again at most once a day when you open the Library,
 so a new book in a series you're caught up on shows up as NEW (and joins Up next).
 
-Every book counts towards progress, extras included, unless you **Skip** it on the series page.
+Every book counts towards progress, extras included, unless you **Skip** it on the series page, or
+it isn't out yet: a book with a release date ahead counts from the day it comes out, and that day
+it's NEW (and joins Up next) if you're caught up.
 
 Hours in the stats are spread evenly over the days between a book's start and finish dates; a book
 with no start date counts in the month you finished it.

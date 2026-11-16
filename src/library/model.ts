@@ -42,6 +42,9 @@ export interface LibSeries {
   notes?: string;
   added: string;
   refreshedAt?: string | null;
+  /** The numbered books that were out when this series was last checked: one that's out now and
+   * isn't here is a new release (see releaseCheck) */
+  seen?: string[];
 }
 
 export interface NewsItem {
@@ -82,8 +85,18 @@ export const STATUS_LABEL: Record<Status, string> = {
   unstarted: "Not started",
 };
 
-/** The books that count: the numbered ones you haven't skipped, and extras you've included */
-export const counted = (s: LibSeries) => s.books.filter((b) => !b.skip && (!b.extra || b.include !== false));
+/** Out already: released by today (or no date known), or you've started it anyway */
+export const isOut = (b: LibBook, now = today()) => !b.released || b.released <= now || !!b.started || !!b.finished;
+
+/** The books that count: out already, not skipped, and extras you haven't unticked */
+export const counted = (s: LibSeries) => {
+  const now = today();
+  return s.books.filter((b) => !b.skip && (!b.extra || b.include !== false) && isOut(b, now));
+};
+
+/** Books not out yet, soonest first */
+export const upcoming = (s: LibSeries) =>
+  s.books.filter((b) => !b.skip && !isOut(b)).sort((a, b) => String(a.released).localeCompare(String(b.released)));
 export const mainBooks = (s: LibSeries) => s.books.filter((b) => !b.extra);
 export const isListening = (b: LibBook) => !!b.started && !b.finished;
 
@@ -369,6 +382,7 @@ export function mergeAudible(info: AudibleSeries, have?: LibSeries): { series: L
       notes: have?.notes,
       added: have?.added ?? today(),
       refreshedAt: info.fetchedAt,
+      ...(have?.seen ? { seen: have.seen } : {}),
     },
     added,
   };
@@ -383,12 +397,20 @@ export function sortBooks(books: LibBook[]): LibBook[] {
   });
 }
 
-/** After a refresh: a new numbered book in a series you'd finished every book of, which is the
- * moment it's worth telling you (and queueing it) */
-export function newRelease(before: LibSeries, added: LibBook[]): LibBook | null {
-  if (!added.length) return null;
-  const main = mainBooks(before).filter((b) => !b.skip);
-  const doneBefore = main.length > 0 && main.every((b) => b.finished);
-  if (!doneBefore) return null;
-  return added[0];
+/** A book's place in a series that survives a new edition: its number, else its id */
+const slot = (b: LibBook) => (b.n ? `n${parseFloat(b.n)}` : b.id);
+
+/** Has a numbered book come out since the series was last checked, in a series you'd finished every
+ * book of that was out then? That's news (and it joins Up next). It counts when it comes out, not
+ * when Audible first lists it with a date ahead. Returns the book, and the new list of what's out.
+ * The first check of a series only records what's out. */
+export function releaseCheck(s: LibSeries, now = today()): { news: LibBook | null; seen: string[] } {
+  const main = s.books.filter((b) => !b.extra && !b.skip);
+  const out = main.filter((b) => isOut(b, now));
+  const seen = out.map(slot);
+  if (!s.seen) return { news: null, seen };
+  const before = main.filter((b) => s.seen!.includes(slot(b)));
+  const fresh = out.filter((b) => !s.seen!.includes(slot(b)) && !b.started && !b.finished);
+  const caughtUp = before.length > 0 && before.every((b) => b.finished);
+  return { news: fresh.length && caughtUp ? fresh[0] : null, seen };
 }

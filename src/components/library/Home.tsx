@@ -19,6 +19,7 @@ import {
   remaining,
   statusOf,
   today,
+  upcoming,
   yearStats,
   type Library,
   type LibSeries,
@@ -331,6 +332,8 @@ function queueMeta(s: LibSeries): string {
   const nb = nextBook(s);
   const started = counted(s).some((b) => b.finished);
   if (s.kind === "book") return `${s.authors[0] ?? "Standalone"} · ${fmtMinutes(left.minutes, true)}`;
+  const soon = upcoming(s)[0];
+  if (!nb && soon) return `${bookLabel(soon)} out ${fmtDate(soon.released)}`;
   if (started && nb) return `${bookLabel(nb)} next · ${left.books} book${left.books === 1 ? "" : "s"} left · ${fmtMinutes(left.minutes, true)}`;
   const n = counted(s).length;
   return `${s.authors[0] ? `${s.authors[0]} · ` : ""}${n} book${n === 1 ? "" : "s"} · ${fmtMinutes(left.minutes, true)}`;
@@ -511,6 +514,11 @@ function SeriesTable({ lib }: { lib: Library }) {
                 <span>
                   <span className={`lib-status lib-status-${status}`}>{STATUS_LABEL[status]}</span>
                   {news.has(s.key) && <span className="lib-new-line">● New book out</span>}
+                  {!news.has(s.key) && (status === "caught" || status === "partway") && !nextBook(s) && upcoming(s)[0] && (
+                    <span className="lib-new-line" style={{ color: "var(--muted)" }}>
+                      {bookLabel(upcoming(s)[0])} due {fmtDate(upcoming(s)[0].released)}
+                    </span>
+                  )}
                 </span>
                 <span className="lib-progress">
                   <span>

@@ -614,11 +614,14 @@ a.lib-tr:hover {
   gap: 20px;
 }
 .lib-books {
-  min-width: 840px;
+  min-width: 960px;
+}
+.lib-book > span {
+  white-space: nowrap;
 }
 .lib-book {
   display: grid;
-  grid-template-columns: 28px 34px minmax(0, 1fr) 86px 132px 132px 50px 92px;
+  grid-template-columns: 28px 34px minmax(0, 1fr) 64px 136px 128px 128px 40px 92px;
   gap: 10px;
   align-items: center;
   padding: 7px 20px;
