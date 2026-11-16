@@ -41,9 +41,18 @@ function read(): Library {
 /** Extras used to start unticked; now they count unless you untick them. The first build was out
  * for minutes, so an unticked extra is the old default, not a choice: tick them all, once. */
 function migrate(l: Library): Library {
-  if (l.migrated?.includes("extras-on")) return l;
-  for (const s of Object.values(l.series)) for (const b of s.books) if (b.extra && b.include === false) delete b.include;
-  l.migrated = [...(l.migrated ?? []), "extras-on"];
+  const done = new Set(l.migrated ?? []);
+  if (!done.has("extras-on")) {
+    for (const s of Object.values(l.series)) for (const b of s.books) if (b.extra && b.include === false) delete b.include;
+    done.add("extras-on");
+  }
+  // Series used to follow "I mostly listen / read" unless set otherwise, so switching it relabelled
+  // books already logged. Now each series keeps its own: the one it shows at this moment.
+  if (!done.has("series-format")) {
+    for (const s of Object.values(l.series)) s.format ??= l.settings.format;
+    done.add("series-format");
+  }
+  l.migrated = [...done];
   return l;
 }
 
@@ -181,6 +190,7 @@ export function addFromAudible(info: AudibleSeries, opts: AddOptions): string {
       main[opts.startIndex].finished = null;
     }
     series.wish = opts.place === "wish";
+    series.format ??= l.settings.format; // your usual now: switching it later leaves this series be
     l.series[key] = series;
     series.seen = releaseCheck(series).seen;
     l.queue = l.queue.filter((k) => k !== key);
@@ -196,6 +206,7 @@ export function addFromGoogle(v: GoogleBook, place: Place, start = false): strin
     const have = l.series[series.key];
     if (have) return;
     series.wish = place === "wish";
+    series.format = l.settings.format;
     series.seen = releaseCheck(series).seen;
     if (start) series.books[0].started = today();
     l.series[series.key] = series;
@@ -208,7 +219,7 @@ export function addFromGoogle(v: GoogleBook, place: Place, start = false): strin
 export function addManual(title: string, authors: string[], place: Place): string {
   const key = `manual:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   change((l) => {
-    l.series[key] = { key, asin: null, kind: "manual", title, authors, image: null, books: [], wish: place === "wish", added: today() };
+    l.series[key] = { key, asin: null, kind: "manual", title, authors, image: null, books: [], wish: place === "wish", added: today(), format: l.settings.format };
     if (place === "next") l.queue.push(key);
   });
   return key;
@@ -282,20 +293,19 @@ export function setPages(key: string, bookId: string, pages: number | null): voi
   });
 }
 
-/** Whether you mostly listen or read: the default for every book */
+/** Whether you mostly listen or read: how series you add from now on start (ones you have keep theirs) */
 export function setDefaultFormat(format: Format): void {
   change((l) => {
     l.settings.format = format;
   });
 }
 
-/** Read or listened for a whole series (null: your usual) */
-export function setSeriesFormat(key: string, format: Format | null): void {
+/** Read or listened for a whole series: its own, whatever your usual is */
+export function setSeriesFormat(key: string, format: Format): void {
   changeSeries(key, (s) => {
-    if (format) s.format = format;
-    else delete s.format;
+    s.format = format;
     // A book set the same way as its series needs no setting of its own
-    for (const b of s.books) if (b.format && b.format === (format ?? undefined)) delete b.format;
+    for (const b of s.books) if (b.format === format) delete b.format;
   });
 }
 
@@ -497,6 +507,7 @@ export async function refreshStale(maxAgeHours = 24): Promise<void> {
 export function putSeries(series: LibSeries, place: Place): void {
   change((l) => {
     l.series[series.key] = series;
+    series.format ??= l.settings.format;
     series.seen = releaseCheck(series).seen;
     if (place === "wish") series.wish = true;
     if (place === "next" && !l.queue.includes(series.key)) l.queue.push(series.key);

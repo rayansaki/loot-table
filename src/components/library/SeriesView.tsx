@@ -368,7 +368,7 @@ export default function SeriesView({ lib, seriesKey }: { lib: Library; seriesKey
                     type="button"
                     className={seriesFmt === f ? "on" : ""}
                     aria-pressed={seriesFmt === f}
-                    onClick={() => setSeriesFormat(s.key, f === lib.settings.format ? null : f)}
+                    onClick={() => setSeriesFormat(s.key, f)}
                   >
                     {f === "listen" ? "Listening" : "Reading"}
                   </button>
