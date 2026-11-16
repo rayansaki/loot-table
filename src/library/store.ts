@@ -355,7 +355,9 @@ export async function fillPages(key: string, limit = 40, again = false): Promise
       const { pages } = await getJson<{ pages: number | null }>(`api/books/pages?${q}`);
       changeBook(key, b.id, (x) => {
         if (x.pagesEdited) return;
-        if (pages || again || x.pages == null || x.pages === 0) x.pages = pages ?? 0; // 0: asked, none found
+        // A count found before stays when Google has nothing this time; 0: asked, none found
+        if (pages) x.pages = pages;
+        else if (x.pages == null) x.pages = 0;
         x.pagesChecked = today();
       });
       looked++;

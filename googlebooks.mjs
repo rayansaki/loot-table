@@ -105,9 +105,10 @@ export async function seriesEditions(api, key, series, author) {
   return out;
 }
 
+/** The book's own search: its title and author as Audible has them (the first way of looking, which
+ * found books like The Primal Hunter 15 that a series' 80 results can miss) */
 async function titleEditions(api, key, title, author) {
-  const surname = words(author).split(" ").pop() ?? "";
-  const q = `intitle:"${String(title).split(":")[0]}"${surname ? ` inauthor:${surname}` : ""}`;
+  const q = [`intitle:${title}`, author ? `inauthor:${author}` : ""].filter(Boolean).join(" ");
   const query = new URLSearchParams({ q, maxResults: "20", printType: "books", key });
   return (await getJson(`${api}/books/v1/volumes?${query}`)).items ?? [];
 }
@@ -126,8 +127,13 @@ export async function pageCount(api, key, title, author, series = "", n = null, 
   const ownTitle = want.base && want.base !== seriesBase;
   const pool = [
     ...(editions ? await editions() : series ? await seriesEditions(api, key, series, author) : []),
-    ...(ownTitle || !series ? await titleEditions(api, key, title, author) : []),
+    ...(await titleEditions(api, key, title, author)),
   ];
+  // A title of its own matches the start of an edition's title or the other way round, with or
+  // without its subtitle: "The Eye of the Bedlam Bride (Dungeon Crawler Carl Book 6)" is book 6
+  const bare = (t) => words(t).replace(/^(the|a|an) /, "");
+  const same = (a, b) => !!a && !!b && (a === b || a.startsWith(`${b} `) || b.startsWith(`${a} `));
+  const mine = [bare(String(title).split(":")[0]), bare(title)];
   const seen = new Set();
   const counts = [];
   for (const item of pool) {
@@ -138,9 +144,10 @@ export async function pageCount(api, key, title, author, series = "", n = null, 
     if (NOT_THE_BOOK.test(`${v.title ?? ""} ${v.subtitle ?? ""}`)) continue;
     if (surname && !(v.authors ?? []).some((a) => words(a).includes(surname))) continue;
     const got = parseTitle(v.title ?? "", v.subtitle ?? "");
-    const match = ownTitle
-      ? got.base === want.base
-      : got.base === seriesBase && (got.n ?? "1") === number;
+    const byNumber = number != null && got.base === seriesBase && (got.n ?? "1") === number;
+    const theirs = [bare(v.title ?? ""), bare(`${v.title ?? ""} ${v.subtitle ?? ""}`)];
+    const byTitle = ownTitle && mine.some((a) => theirs.some((b) => same(a, b)));
+    const match = byNumber || byTitle;
     if (match) counts.push(v.pageCount);
   }
   counts.sort((a, b) => a - b);

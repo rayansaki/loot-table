@@ -91,3 +91,28 @@ describe("page counts by series number", () => {
     expect(await pageCount("x", "k", "Dungeon Crawler Carl", "Matt Dinniman", "Dungeon Crawler Carl", "1", e)).toBe(450);
   });
 });
+
+describe("page counts the first way found too", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const v = (id, title, pages, extra = {}) => ({ id, volumeInfo: { title, authors: ["Matt Dinniman"], pageCount: pages, language: "en", ...extra } });
+
+  it("matches a title of its own with the series in brackets or a subtitle after it", async () => {
+    const own = [v("a", "The Eye of the Bedlam Bride (Dungeon Crawler Carl Book 6)", 650), v("b", "The Dungeon Anarchist's Cookbook", 420, { subtitle: "Dungeon Crawler Carl Book 3" })];
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({ items: own }) }));
+    const none = async () => [];
+    expect(await pageCount("x", "k", "The Eye of the Bedlam Bride", "Matt Dinniman", "Dungeon Crawler Carl", "6", none)).toBe(650);
+    expect(await pageCount("x", "k", "The Dungeon Anarchist's Cookbook", "Matt Dinniman", "Dungeon Crawler Carl", "3", none)).toBe(420);
+  });
+
+  it("finds a numbered book the series' search missed, through its own search", async () => {
+    const ph15 = [{ id: "z", volumeInfo: { title: "The Primal Hunter 15: A LitRPG Adventure", authors: ["Zogarth"], pageCount: 810, language: "en" } }];
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({ items: ph15 }) }));
+    expect(await pageCount("x", "k", "The Primal Hunter 15", "Zogarth", "The Primal Hunter", "15", async () => [])).toBe(810);
+  });
+
+  it("doesn't take book 9 for book 1 when book 1's title is just the series' name", async () => {
+    const ph = [{ id: "y", volumeInfo: { title: "The Primal Hunter 9: A LitRPG Adventure", authors: ["Zogarth"], pageCount: 602, language: "en" } }];
+    vi.stubGlobal("fetch", async () => ({ ok: true, json: async () => ({ items: ph }) }));
+    expect(await pageCount("x", "k", "The Primal Hunter", "Zogarth", "The Primal Hunter", "1", async () => [])).toBeNull();
+  });
+});
