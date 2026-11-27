@@ -15,9 +15,10 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useState } from "react";
-import { TIERS, type Board, type Bucket, type Work } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { TIERS, type Board, type Bucket, type Tier, type Work } from "../api";
 import { useBoard, useOpenWork } from "../board";
+import { setTierNote, setTierNotesShown, useTierNotes } from "../tierNotes";
 import { Cover } from "./common";
 
 const BUCKETS: Bucket[] = [...TIERS, "unplaced"];
@@ -53,14 +54,93 @@ function Tile({ work }: { work: Work }) {
   );
 }
 
+/** A tier's letter: hover for its comment, click to switch every tier between letters and comments,
+ * double-click to write one */
+function TierLabel({ tier, note, shown }: { tier: Tier; note: string; shown: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const clickTimer = useRef<number>();
+  useEffect(() => () => window.clearTimeout(clickTimer.current), []);
+
+  const startEditing = () => {
+    window.clearTimeout(clickTimer.current); // a double-click isn't also a switch
+    setText(note);
+    setEditing(true);
+  };
+  const save = () => {
+    setTierNote(tier, text);
+    setEditing(false);
+  };
+
+  if (editing)
+    return (
+      <div className={`tier-label tier-${tier} editing`}>
+        <textarea
+          className="tier-note-edit"
+          value={text}
+          autoFocus
+          maxLength={200}
+          placeholder={`What ${tier} means to you`}
+          aria-label={`Comment for tier ${tier}`}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              save();
+            } else if (e.key === "Escape") setEditing(false);
+          }}
+        />
+      </div>
+    );
+
+  const showNote = shown && !!note;
+  return (
+    <div
+      className={`tier-label tier-${tier} clickable ${shown ? "notes" : ""}`}
+      role="button"
+      tabIndex={0}
+      title={note ? note : "Double-click to add a comment"}
+      aria-label={note ? `Tier ${tier}: ${note}` : `Tier ${tier}`}
+      onClick={() => {
+        window.clearTimeout(clickTimer.current);
+        clickTimer.current = window.setTimeout(() => setTierNotesShown(!shown), 250);
+      }}
+      onDoubleClick={startEditing}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") setTierNotesShown(!shown);
+        else if (e.key === "F2" || e.key === "e") {
+          e.preventDefault();
+          startEditing();
+        }
+      }}
+    >
+      {showNote ? (
+        <>
+          <span className="tier-note-letter">{tier}</span>
+          <span className="tier-note">{note}</span>
+        </>
+      ) : (
+        tier
+      )}
+    </div>
+  );
+}
+
 function Row({ bucket, works }: { bucket: Bucket; works: Work[] }) {
   const { setNodeRef, isOver } = useDroppable({ id: bucket });
+  const { notes, shown } = useTierNotes();
   return (
     <div className={`tier-row ${bucket === "unplaced" ? "pool" : ""}`}>
-      <div className={`tier-label tier-${bucket}`}>
-        {LABELS[bucket]}
-        {bucket === "unplaced" && works.length > 0 && <small>{works.length}</small>}
-      </div>
+      {bucket === "unplaced" ? (
+        <div className={`tier-label tier-${bucket} ${shown ? "notes" : ""}`}>
+          {LABELS[bucket]}
+          {works.length > 0 && <small>{works.length}</small>}
+        </div>
+      ) : (
+        <TierLabel tier={bucket} note={notes[bucket] ?? ""} shown={shown} />
+      )}
       <SortableContext id={bucket} items={works.map((w) => w.key)} strategy={rectSortingStrategy}>
         <div ref={setNodeRef} className={`tier-items ${isOver ? "over" : ""}`}>
           {works.map((w) => (

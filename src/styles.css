@@ -331,6 +331,60 @@ main {
   font-size: 14px;
   color: #111;
 }
+/* Comments on the letters: double-click to write, click to switch letters and comments */
+.tier-label.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+.tier-label.clickable:focus-visible {
+  outline: 2px solid #1b1b1b;
+  outline-offset: -4px;
+}
+.tier-label.notes,
+.tier-label.editing {
+  width: 150px;
+  padding: 6px 8px;
+}
+.tier-note-letter {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+.tier-note {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tier-note-edit {
+  width: 100%;
+  min-height: 64px;
+  resize: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1b1b1b;
+  background: rgba(255, 255, 255, 0.75);
+}
+@media (max-width: 640px) {
+  .tier-label.notes,
+  .tier-label.editing {
+    width: 104px;
+  }
+  .tier-note,
+  .tier-note-edit {
+    font-size: 12px;
+  }
+}
 .tier-S { background: var(--tier-S); }
 .tier-A { background: var(--tier-A); }
 .tier-B { background: var(--tier-B); }
